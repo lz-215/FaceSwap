@@ -1,64 +1,54 @@
 import { NextResponse } from "next/server";
-import { db } from "~/db";
+import { createClient } from "~/lib/supabase/server";
 
 export async function GET() {
   try {
     console.log("=== 数据库连接诊断开始===");
-    
+
     // 检查环境变量
-    const databaseUrl = process.env.DATABASE_URL || process.env.SUPABASE_DB_URL;
-    console.log("DATABASE_URL存在:", !!databaseUrl);
-    
-    if (databaseUrl) {
-      // 隐藏密码显示URL结构
-      const urlParts = databaseUrl.replace(/:([^:@]+)@/, ':***@');
-      console.log("数据库URL结构:", urlParts);
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    console.log("SUPABASE_URL存在:", !!supabaseUrl);
+    console.log("SUPABASE_ANON_KEY存在:", !!supabaseKey);
+
+    if (supabaseUrl && supabaseKey) {
+      // 隐藏 key 显示 URL 结构
+      const urlParts = supabaseUrl.replace(/(\w{6})\w+(\w{4})/, '$1***$2');
+      console.log("Supabase URL结构:", urlParts);
     }
 
     // 尝试简单的数据库查询
-    console.log("尝试连接数据库..");
-    const result = await db.execute(`SELECT version() as version, current_database() as database_name`);
-    
-    console.log("数据库连接成功");
-    console.log("数据库版本?", result.rows[0]?.version);
-    console.log("数据库名称?", result.rows[0]?.database_name);
+    console.log("尝试连接 Supabase 数据库..");
+    const supabase = await createClient();
+    // 查询表名
+    const { data: tables, error } = await supabase
+      .from('information_schema.tables')
+      .select('table_name')
+      .eq('table_schema', 'public');
 
-    // 检查现有表
-    const tables = await db.execute(`
-      SELECT table_name 
-      FROM information_schema.tables 
-      WHERE table_schema = 'public'
-      ORDER BY table_name
-    `);
+    if (error) {
+      throw error;
+    }
 
-    const tableNames = tables.rows.map((row: any) => row.table_name);
+    const tableNames = tables?.map((row: any) => row.table_name) || [];
     console.log("现有数据表?", tableNames);
 
     return NextResponse.json({
       success: true,
-      message: "数据库连接成功",
+      message: "Supabase HTTP API 连接成功",
       data: {
-        hasConnectionString: !!databaseUrl,
+        hasConnectionString: !!supabaseUrl && !!supabaseKey,
         connectionTest: "通过",
-        databaseVersion: result.rows[0]?.version,
-        databaseName: result.rows[0]?.database_name,
         existingTables: tableNames,
         tableCount: tableNames.length
       }
     });
-
   } catch (error) {
-    console.error("数据库连接失败", error);
-    
+    console.error("数据库连接失败:", error);
     return NextResponse.json({
       success: false,
-      error: "数据库连接失败",
-      details: error instanceof Error ? error.message : "未知错误",
-      data: {
-        hasConnectionString: !!(process.env.DATABASE_URL || process.env.SUPABASE_DB_URL),
-        connectionTest: "失败",
-        errorType: error instanceof Error ? error.constructor.name : "Unknown"
-      }
+      message: "数据库连接失败",
+      error: String(error)
     }, { status: 500 });
   }
 } 

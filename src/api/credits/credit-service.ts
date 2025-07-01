@@ -1,8 +1,9 @@
 import { createId } from "@paralleldrive/cuid2";
-import { and, eq, sql } from "drizzle-orm";
-import type { PgTransaction } from "drizzle-orm/pg-core";
-import type { PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js";
-import { db } from "~/db";
+// import { and, eq, sql } from "drizzle-orm";
+// import type { PgTransaction } from "drizzle-orm/pg-core";
+// import type { PostgresJsQueryResultHKT } from "drizzle-orm/postgres-js";
+// import { db } from "~/db";
+import { createClient } from "~/lib/supabase/server";
 import type * as schema from "~/db/schema";
 import {
   creditConsumptionConfigTable,
@@ -17,7 +18,7 @@ import { stripe } from "~/lib/stripe";
  * 改进版积分服务 - 解决事务安全和并发问题
  */
 
-type DbTransaction = PgTransaction<PostgresJsQueryResultHKT, typeof schema>;
+// type DbTransaction = PgTransaction<PostgresJsQueryResultHKT, typeof schema>;
 
 /**
  * 安全的积分消费函数（使用数据库事务和锁）
@@ -507,12 +508,18 @@ export async function handleCreditRechargeSuccess(
  * @returns 配置信息
  */
 export async function getCreditConsumptionConfig(actionType: string) {
-  return await db.query.creditConsumptionConfigTable.findFirst({
-    where: and(
-      eq(creditConsumptionConfigTable.actionType, actionType),
-      eq(creditConsumptionConfigTable.isActive, 1),
-    ),
-  });
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("credit_consumption_config")
+    .select("*")
+    .eq("action_type", actionType)
+    .eq("is_active", true)
+    .single();
+  if (error) {
+    console.error("获取积分消费配置失败:", error);
+    return null;
+  }
+  return data;
 }
 
 /**
@@ -520,10 +527,18 @@ export async function getCreditConsumptionConfig(actionType: string) {
  * @returns 套餐列表
  */
 export async function getCreditPackages() {
-  return await db.query.creditPackageTable.findMany({
-    where: eq(creditPackageTable.isActive, 1),
-    orderBy: [creditPackageTable.sortOrder, creditPackageTable.price],
-  });
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("credit_package")
+    .select("*")
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true })
+    .order("price", { ascending: true });
+  if (error) {
+    console.error("获取积分套餐失败:", error);
+    return [];
+  }
+  return data;
 }
 
 /**
@@ -532,29 +547,17 @@ export async function getCreditPackages() {
  * @returns 用户积分余额
  */
 export async function getUserCreditBalance(userId: string) {
-  let userBalance = await db.query.userCreditBalanceTable.findFirst({
-    where: eq(userCreditBalanceTable.userId, userId),
-  });
-
-  // 如果用户没有积分记录，则创建一个
-  if (!userBalance) {
-    const newBalance = await db
-      .insert(userCreditBalanceTable)
-      .values({
-        balance: 0,
-        createdAt: new Date(),
-        id: createId(),
-        totalConsumed: 0,
-        totalRecharged: 0,
-        updatedAt: new Date(),
-        userId,
-      })
-      .returning();
-
-    userBalance = newBalance[0];
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("user_credit_balance")
+    .select("*")
+    .eq("user_id", userId)
+    .single();
+  if (error) {
+    console.error("获取用户积分余额失败:", error);
+    return null;
   }
-
-  return userBalance;
+  return data;
 }
 
 /**
@@ -569,12 +572,18 @@ export async function getUserCreditRecharges(
   limit = 10,
   offset = 0,
 ) {
-  return await db.query.creditRechargeTable.findMany({
-    where: eq(creditRechargeTable.userId, userId),
-    limit,
-    offset,
-    orderBy: [creditRechargeTable.createdAt],
-  });
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("credit_recharge")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+  if (error) {
+    console.error("获取用户充值记录失败:", error);
+    return [];
+  }
+  return data;
 }
 
 /**
@@ -589,10 +598,16 @@ export async function getUserCreditTransactions(
   limit = 10,
   offset = 0,
 ) {
-  return await db.query.creditTransactionTable.findMany({
-    where: eq(creditTransactionTable.userId, userId),
-    limit,
-    offset,
-    orderBy: [creditTransactionTable.createdAt],
-  });
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("credit_transaction")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+  if (error) {
+    console.error("获取用户交易记录失败:", error);
+    return [];
+  }
+  return data;
 }
