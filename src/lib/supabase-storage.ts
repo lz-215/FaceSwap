@@ -1,9 +1,7 @@
 import { createId } from "@paralleldrive/cuid2";
-import { eq } from "drizzle-orm";
 import { v4 as uuidv4 } from "uuid";
 
-import { db } from "~/db";
-import { uploadsTable } from "~/db/schema";
+import { createClient } from "~/lib/supabase/server";
 import { supabase } from "~/lib/supabase-client";
 
 // 默认存储桶名称
@@ -20,13 +18,22 @@ export async function deleteFile(
   bucketName: string = BUCKET_NAME,
 ) {
   try {
+    const supabaseClient = await createClient();
+    
     const { error } = await getStorageBucket(bucketName).remove([fileKey]);
     if (error) {
       throw error;
     }
 
     // 从数据库中删除记录
-    await db.delete(uploadsTable).where(eq(uploadsTable.key, fileKey));
+    const { error: dbError } = await supabaseClient
+      .from("uploads")
+      .delete()
+      .eq("key", fileKey);
+
+    if (dbError) {
+      console.error("删除数据库记录失败:", dbError);
+    }
 
     return { success: true };
   } catch (error) {
@@ -43,6 +50,8 @@ export async function uploadFile(
   bucketName: string = BUCKET_NAME,
 ) {
   try {
+    const supabaseClient = await createClient();
+    
     // 生成唯一文件名
     const fileExt = file.name.split(".").pop();
     const fileName = `${uuidv4()}.${fileExt}`;
@@ -67,13 +76,22 @@ export async function uploadFile(
       getStorageBucket(bucketName).getPublicUrl(filePath);
 
     // 保存上传记录到数据库
-    await db.insert(uploadsTable).values({
-      id: createId(),
-      key: filePath,
-      type,
-      url: publicUrlData.publicUrl,
-      userId,
-    });
+    const { error: dbError } = await supabaseClient
+      .from("uploads")
+      .insert({
+        id: createId(),
+        key: filePath,
+        type,
+        url: publicUrlData.publicUrl,
+        user_id: userId,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+    if (dbError) {
+      console.error("保存上传记录失败:", dbError);
+      throw dbError;
+    }
 
     return {
       fileKey: filePath,

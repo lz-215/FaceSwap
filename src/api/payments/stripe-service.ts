@@ -1,22 +1,18 @@
 import { createId } from "@paralleldrive/cuid2";
-import { eq } from "drizzle-orm";
-
-import { db } from "~/db";
-import {
-  stripeCustomerTable,
-  stripeSubscriptionTable,
-} from "~/db/schema/payments/tables";
-import { userTable } from "~/db/schema/users/tables";
+import { createClient } from "~/lib/supabase/server";
 import { stripe } from "~/lib/stripe";
 
 /**
- * 创建新客户 */
+ * 创建新客户
+ */
 export async function createCustomer(
   userId: string,
   email: string,
   name?: string,
 ) {
   try {
+    const supabase = await createClient();
+    
     const customer = await stripe.customers.create({
       email,
       metadata: {
@@ -25,13 +21,20 @@ export async function createCustomer(
       name: name || email,
     });
 
-    await db.insert(stripeCustomerTable).values({
-      createdAt: new Date(),
-      customerId: customer.id,
-      id: createId(),
-      updatedAt: new Date(),
-      userId,
-    });
+    const { error } = await supabase
+      .from("stripe_customer")
+      .insert({
+        id: createId(),
+        user_id: userId,
+        customer_id: customer.id,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+    if (error) {
+      console.error("保存客户信息到数据库失败:", error);
+      throw error;
+    }
 
     return customer;
   } catch (error) {
@@ -67,14 +70,18 @@ async function getCheckoutUrl(
   priceId: string,
 ): Promise<null | string> {
   try {
+    const supabase = await createClient();
+    
     // 获取客户 ID，如果不存在则创建
     let customer = await getCustomerByUserId(userId);
 
     if (!customer) {
-      // 需要用户信息，这里需要根据实际情况获取
-      const userInfo = await db.query.userTable.findFirst({
-        where: eq(userTable.id, userId),
-      });
+      // 获取用户信息
+      const { data: userInfo } = await supabase
+        .from("user")
+        .select("email, name")
+        .eq("id", userId)
+        .single();
 
       if (!userInfo || !userInfo.email) {
         throw new Error("用户信息不存在");
@@ -85,19 +92,20 @@ async function getCheckoutUrl(
         userInfo.email,
         userInfo.name,
       );
+      
       customer = {
-        createdAt: new Date(),
-        customerId: newCustomer.id,
         id: createId(),
-        updatedAt: new Date(),
-        userId,
+        user_id: userId,
+        customer_id: newCustomer.id,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       };
     }
 
     // 创建结账会话
     const session = await stripe.checkout.sessions.create({
       cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/billing?canceled=true`,
-      customer: customer.customerId,
+      customer: customer.customer_id,
       line_items: [
         {
           price: priceId,
@@ -119,15 +127,25 @@ async function getCheckoutUrl(
  * 获取用户Stripe 客户信息
  */
 export async function getCustomerByUserId(userId: string) {
-  const customer = await db.query.stripeCustomerTable.findFirst({
-    where: eq(stripeCustomerTable.userId, userId),
-  });
+  try {
+    const supabase = await createClient();
+    
+    const { data: customer, error } = await supabase
+      .from("stripe_customer")
+      .select("*")
+      .eq("user_id", userId)
+      .single();
 
-  if (!customer) {
+    if (error) {
+      console.error("获取客户信息失败:", error);
+      return null;
+    }
+
+    return customer;
+  } catch (error) {
+    console.error("获取客户信息失败:", error);
     return null;
   }
-
-  return customer;
 }
 
 /**
@@ -142,7 +160,7 @@ async function getCustomerDetails(userId: string) {
 
   try {
     const customerDetails = await stripe.customers.retrieve(
-      customer.customerId,
+      customer.customer_id,
     );
     return customerDetails;
   } catch (error) {
@@ -152,13 +170,27 @@ async function getCustomerDetails(userId: string) {
 }
 
 /**
- * 获取用户所有订阅 */
+ * 获取用户所有订阅
+ */
 export async function getUserSubscriptions(userId: string) {
-  const subscriptions = await db.query.stripeSubscriptionTable.findMany({
-    where: eq(stripeSubscriptionTable.userId, userId),
-  });
+  try {
+    const supabase = await createClient();
+    
+    const { data: subscriptions, error } = await supabase
+      .from("stripe_subscription")
+      .select("*")
+      .eq("user_id", userId);
 
-  return subscriptions;
+    if (error) {
+      console.error("获取用户订阅失败:", error);
+      return [];
+    }
+
+    return subscriptions || [];
+  } catch (error) {
+    console.error("获取用户订阅失败:", error);
+    return [];
+  }
 }
 
 /**
@@ -166,7 +198,7 @@ export async function getUserSubscriptions(userId: string) {
  */
 async function hasActiveSubscription(userId: string): Promise<boolean> {
   const subscriptions = await getUserSubscriptions(userId);
-  return subscriptions.some((sub: typeof stripeSubscriptionTable.$inferSelect) => sub.status === "active");
+  return subscriptions.some((sub: any) => sub.status === "active");
 }
 
 /**
@@ -180,36 +212,65 @@ export async function syncSubscription(
   status: string,
 ) {
   try {
-    const existingSubscription =
-      await db.query.stripeSubscriptionTable.findFirst({
-        where: eq(stripeSubscriptionTable.subscriptionId, subscriptionId),
-      });
+    const supabase = await createClient();
+    
+    // 检查是否已存在
+    const { data: existingSubscription } = await supabase
+      .from("stripe_subscription")
+      .select("*")
+      .eq("subscription_id", subscriptionId)
+      .single();
 
     if (existingSubscription) {
-      await db
-        .update(stripeSubscriptionTable)
-        .set({
+      // 更新现有订阅
+      const { error } = await supabase
+        .from("stripe_subscription")
+        .update({
           status,
-          updatedAt: new Date(),
+          updated_at: new Date().toISOString(),
         })
-        .where(eq(stripeSubscriptionTable.subscriptionId, subscriptionId));
+        .eq("subscription_id", subscriptionId);
+
+      if (error) {
+        console.error("更新订阅失败:", error);
+        throw error;
+      }
+
       return existingSubscription;
     }
 
-    const subscription = await db.insert(stripeSubscriptionTable).values({
-      createdAt: new Date(),
-      customerId,
-      id: createId(),
-      productId,
-      status,
-      subscriptionId,
-      updatedAt: new Date(),
-      userId,
-    });
+    // 创建新订阅
+    const { data: newSubscription, error: insertError } = await supabase
+      .from("stripe_subscription")
+      .insert({
+        id: createId(),
+        user_id: userId,
+        customer_id: customerId,
+        subscription_id: subscriptionId,
+        product_id: productId,
+        status,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
 
-    return subscription;
+    if (insertError) {
+      console.error("创建订阅记录失败:", insertError);
+      throw insertError;
+    }
+
+    return newSubscription;
   } catch (error) {
-    console.error("同步订阅错误:", error);
+    console.error("同步订阅数据错误:", error);
     throw error;
   }
 }
+
+// 导出其他有用的函数
+export {
+  createCustomerPortalSession,
+  getCheckoutUrl,
+  getCustomerDetails,
+  hasActiveSubscription,
+};

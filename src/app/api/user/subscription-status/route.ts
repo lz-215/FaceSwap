@@ -1,45 +1,45 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentSupabaseUser } from "~/lib/supabase-auth";
-import { db } from "~/db";
-import { stripeSubscriptionTable } from "~/db/schema";
-import { eq } from "drizzle-orm";
+import { createClient } from "~/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
   try {
-    // 验证用户认证
     const user = await getCurrentSupabaseUser();
+    
     if (!user) {
+      return NextResponse.json({ error: "未授权" }, { status: 401 });
+    }
+
+    const supabase = await createClient();
+    
+    // 获取用户的订阅状态
+    const { data: subscriptions, error } = await supabase
+      .from("stripe_subscription")
+      .select("*")
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("获取订阅状态失败:", error);
       return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
+        { error: "获取订阅状态失败" },
+        { status: 500 }
       );
     }
 
-    // 查询用户的订阅状态
-    const subscriptions = await db.query.stripeSubscriptionTable.findMany({
-      where: eq(stripeSubscriptionTable.userId, user.id),
-    });
-
-    // 检查是否有活跃的订阅
-    const hasActiveSubscription = subscriptions.some(
-      (sub: typeof stripeSubscriptionTable.$inferSelect) => sub.status === "active"
+    // 检查是否有活跃订阅
+    const activeSubscription = subscriptions?.find(
+      (sub: any) => sub.status === "active"
     );
 
     return NextResponse.json({
-      hasActiveSubscription,
-      subscriptions: subscriptions.map((sub: typeof stripeSubscriptionTable.$inferSelect) => ({
-        id: sub.id,
-        status: sub.status,
-        productId: sub.productId,
-        subscriptionId: sub.subscriptionId,
-        createdAt: sub.createdAt,
-        updatedAt: sub.updatedAt,
-      })),
+      hasActiveSubscription: !!activeSubscription,
+      subscription: activeSubscription || null,
+      subscriptions: subscriptions || [],
     });
   } catch (error) {
-    console.error("Failed to check subscription status:", error);
+    console.error("获取订阅状态错误:", error);
     return NextResponse.json(
-      { error: "Failed to check subscription status" },
+      { error: "内部服务器错误" },
       { status: 500 }
     );
   }

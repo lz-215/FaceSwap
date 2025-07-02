@@ -1,38 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "~/lib/stripe";
-import { db } from "~/db";
-import { eq, like } from "drizzle-orm";
-import { stripeSubscriptionTable, userTable } from "~/db/schema";
+import { createClient } from "~/lib/supabase/server";
 import { addBonusCredits } from "~/api/credits/credit-service";
 
 export async function GET(request: NextRequest) {
   try {
     console.log(`[admin] 查询待处理订阅`);
+    
+    const supabase = await createClient();
 
     // 查询所有以 "pending_" 开头的订阅
-    const pendingSubscriptions = await db.query.stripeSubscriptionTable.findMany({
-      where: like(stripeSubscriptionTable.userId, "pending_%"),
-      orderBy: [stripeSubscriptionTable.createdAt],
-    });
+    const { data: pendingSubscriptions, error } = await supabase
+      .from('stripe_subscription')
+      .select('*')
+      .like('user_id', 'pending_%')
+      .order('created_at');
 
-    console.log(`[admin] 找到 ${pendingSubscriptions.length} 个待处理订阅`);
+    if (error) {
+      throw new Error(`查询订阅失败: ${error.message}`);
+    }
+
+    console.log(`[admin] 找到 ${pendingSubscriptions?.length || 0} 个待处理订阅`);
 
     // 获取详细的订阅和客户信息
     const subscriptionsWithDetails = await Promise.all(
-      pendingSubscriptions.map(async (sub: any) => {
+      (pendingSubscriptions || []).map(async (sub: any) => {
         try {
           // 获取Stripe订阅详情
-          const stripeSubscription = await stripe.subscriptions.retrieve(sub.subscriptionId);
+          const stripeSubscription = await stripe.subscriptions.retrieve(sub.subscription_id);
           
           // 获取客户信息
           const customer = await stripe.customers.retrieve(stripeSubscription.customer as string);
           
           return {
             id: sub.id,
-            subscriptionId: sub.subscriptionId,
-            customerId: sub.customerId,
+            subscriptionId: sub.subscription_id,
+            customerId: sub.customer_id,
             status: sub.status,
-            createdAt: sub.createdAt,
+            createdAt: sub.created_at,
             stripeSubscription: {
               id: stripeSubscription.id,
               status: stripeSubscription.status,
@@ -55,13 +60,13 @@ export async function GET(request: NextRequest) {
             },
           };
         } catch (error) {
-          console.error(`[admin] 获取订阅 ${sub.subscriptionId} 详情失败:`, error);
+          console.error(`[admin] 获取订阅 ${sub.subscription_id} 详情失败:`, error);
           return {
             id: sub.id,
-            subscriptionId: sub.subscriptionId,
-            customerId: sub.customerId,
+            subscriptionId: sub.subscription_id,
+            customerId: sub.customer_id,
             status: sub.status,
-            createdAt: sub.createdAt,
+            createdAt: sub.created_at,
             error: "获取详情失败",
           };
         }
@@ -70,7 +75,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      count: pendingSubscriptions.length,
+      count: pendingSubscriptions?.length || 0,
       subscriptions: subscriptionsWithDetails,
     });
 
@@ -107,12 +112,16 @@ export async function POST(request: NextRequest) {
 
       console.log(`[admin] 手动关联订阅 ${subscriptionId} 到用户 ${userId}`);
 
-      // 验证用户是否存在
-      const user = await db.query.userTable.findFirst({
-        where: eq(userTable.id, userId),
-      });
+      const supabase = await createClient();
 
-      if (!user) {
+      // 验证用户是否存在
+      const { data: user, error: userError } = await supabase
+        .from('user')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (userError || !user) {
         return NextResponse.json(
           { error: "用户不存在", success: false },
           { status: 400 }
@@ -120,11 +129,13 @@ export async function POST(request: NextRequest) {
       }
 
       // 查找待处理的订阅
-      const pendingSubscription = await db.query.stripeSubscriptionTable.findFirst({
-        where: eq(stripeSubscriptionTable.subscriptionId, subscriptionId),
-      });
+      const { data: pendingSubscription, error: subscriptionError } = await supabase
+        .from('stripe_subscription')
+        .select('*')
+        .eq('subscription_id', subscriptionId)
+        .single();
 
-      if (!pendingSubscription) {
+      if (subscriptionError || !pendingSubscription) {
         return NextResponse.json(
           { error: "订阅不存在", success: false },
           { status: 400 }
@@ -132,13 +143,17 @@ export async function POST(request: NextRequest) {
       }
 
       // 更新订阅记录
-      await db
-        .update(stripeSubscriptionTable)
-        .set({
-          userId: userId,
-          updatedAt: new Date(),
+      const { error: updateError } = await supabase
+        .from('stripe_subscription')
+        .update({
+          user_id: userId,
+          updated_at: new Date().toISOString(),
         })
-        .where(eq(stripeSubscriptionTable.subscriptionId, subscriptionId));
+        .eq('subscription_id', subscriptionId);
+
+      if (updateError) {
+        throw new Error(`更新订阅失败: ${updateError.message}`);
+      }
 
       // 如果提供了customerId，也更新Stripe客户的metadata
       if (customerId) {
