@@ -9,9 +9,9 @@
   - 添加了 `consumeCreditsWithTransaction()` - 事务安全的积分消费
   - 添加了 `handleCreditRechargeWithTransaction()` - 事务安全的充值处理
   - 添加了 `addBonusCreditsWithTransaction()` - 事务安全的积分奖励
-  - 添加了 `createCreditRechargeIdempotent()` - 幂等的充值创建
   - 保留了兼容性函数，确保现有代码不受影响
   - 修复了TypeScript类型问题
+  - 删除了一次性支付相关代码（PaymentModal、create-payment-intent等）
 
 ### 2. Webhook处理器升级
 - **文件**: `src/app/api/webhooks/stripe/route.ts`

@@ -356,73 +356,6 @@ export async function addBonusCreditsWithTransaction(
   }
 }
 
-/**
- * 创建幂等的积分充值记录
- * @param userId 用户ID
- * @param packageId 套餐ID
- * @param idempotencyKey 幂等性键
- * @returns 充值记录
- */
-export async function createCreditRechargeIdempotent(
-  userId: string,
-  packageId: string,
-  idempotencyKey: string,
-) {
-  try {
-    const supabase = await createClient();
-    
-    // 检查是否已存在相同的幂等性键
-    const { data: existingRecharge } = await supabase
-      .from("credit_recharge")
-      .select("*")
-      .eq("user_id", userId)
-      .eq("metadata", JSON.stringify({ idempotencyKey }))
-      .single();
-
-    if (existingRecharge) {
-      return existingRecharge;
-    }
-
-    // 获取积分套餐信息
-    const { data: creditPackage } = await supabase
-      .from("credit_package")
-      .select("*")
-      .eq("id", packageId)
-      .eq("is_active", true)
-      .single();
-
-    if (!creditPackage) {
-      throw new Error("积分套餐不存在或已停用");
-    }
-
-    // 创建新的充值记录
-    const rechargeId = createId();
-    const { data: newRecharge, error: insertError } = await supabase
-      .from("credit_recharge")
-      .insert({
-        id: rechargeId,
-        user_id: userId,
-        amount: creditPackage.credits,
-        price: creditPackage.price,
-        currency: creditPackage.currency || "usd",
-        status: "pending",
-        metadata: JSON.stringify({ idempotencyKey, packageId }),
-      })
-      .select()
-      .single();
-
-    if (insertError) {
-      console.error("创建充值记录失败:", insertError);
-      throw insertError;
-    }
-
-    return newRecharge;
-  } catch (error) {
-    console.error("创建积分充值记录失败:", error);
-    throw error;
-  }
-}
-
 // 简化版本的辅助函数，保持兼容性
 export async function addBonusCredits(
   userId: string,
@@ -440,11 +373,6 @@ export async function consumeCredits(
   description?: string,
 ) {
   return consumeCreditsWithTransaction(userId, actionType, uploadId, description);
-}
-
-export async function createCreditRecharge(userId: string, packageId: string) {
-  const idempotencyKey = createId();
-  return createCreditRechargeIdempotent(userId, packageId, idempotencyKey);
 }
 
 export async function handleCreditRechargeSuccess(

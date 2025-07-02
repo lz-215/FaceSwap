@@ -375,13 +375,28 @@
     "card1Desc": "Get into the holiday spirit with our Festive Costume Dress-Up feature! Easily transform yourself into Santa, a spooky ghost, or the Easter Bunny. You can even face-swap with friends for fun group photos. Perfect for personalized holiday cards, social media posts, or just spreading cheer. Simply upload your photo, pick a costume, and enjoy! It's a quick, easy, and fun way to make unforgettable holiday memories.",
     "card2Title": "Meme Face Swap",
     "card2Desc": "Ever wanted to put your face on the Distracted Boyfriend meme or your friend's face on Grumpy Cat? Now you can! Our tool lets you easily create hilarious, personalized memes. Just upload your image, pick a meme template, and watch the magic happen. It's perfect for private jokes or aiming for viral success, making quick, funny, and unforgettable content for social media.",
-    "card3Title": "Anime Face Swap",
-    "card3Desc": "Swap faces between characters like Naruto and Sasuke or give Pikachu a unique twist. Perfect for anime fans and content creators!",
+    "card3Title": "Visual Makeup Experiments",
+    "card3Desc": "Curious about trying a bold new look without the commitment? With Visual Makeup Experiments, you can swap faces with makeup models or celebrities to test out dramatic eyeliner, vibrant lip colors, or even unique hairstyles.",
     "swapNow": "Swap Now"
   },
   "PricingPage": {
     "choosePlan": "Choose Your Plan",
-    "subtitle": "High-quality, lightning-fast face swapping with unlimited possibilities. Cancel anytime."
+    "subtitle": "High-quality, lightning-fast face swapping with unlimited possibilities.",
+    "features": {
+      "watermarkFree": "Watermark-Free",
+      "watermarkFreeDesc": "High-quality output without watermarks on all plans",
+      "priorityProcessing": "Priority Processing",
+      "priorityProcessingDesc": "Subscribers enjoy faster processing speeds",
+      "support247": "24/7 Support",
+      "support247Desc": "Professional support team available anytime"
+    },
+    "credits": {
+      "monthly": "120 Credits Monthly",
+      "monthlyDesc": "Get 120 credits every month to use for face swapping",
+      "yearly": "1800 Credits Yearly", 
+      "yearlyDesc": "Get 1800 credits per year (equivalent to 150 credits per month)"
+    },
+    "disclaimer": "* All prices in USD. Subscriptions auto-renew and can be canceled anytime. Annual plans save 42%."
   },
   "profile": {
     "remainingImages": "Remaining Images",
