@@ -181,7 +181,7 @@ async function handlePaymentIntentSucceeded(event: Stripe.Event) {
       // 记录失败的支付以便后续手动处理
       await recordFailedPayment(paymentIntent.id, rechargeId, fallbackError);
       
-      throw new Error(`所有处理方法都失败了: ${fallbackError.message}`);
+      throw new Error(`所有处理方法都失败了: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`);
     }
   }
 

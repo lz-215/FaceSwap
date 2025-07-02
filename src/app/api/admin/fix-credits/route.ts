@@ -2,19 +2,25 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "~/lib/supabase/server";
 
 /**
- * 管理员API - 手动修复积分问题
- * 
- * 用法:
- * POST /api/admin/fix-credits
- * { 
- *   "action": "fix_orphaned_recharges" | "retry_failed_payments" | "recalculate_balance",
+ * 管理员修复积分系统 API
+ * POST body 格式:
+ * {
+ *   "action": "fix_orphaned_recharges" | "retry_failed_payments" | "recalculate_balance" | "fix_specific_recharge",
  *   "userId": "optional_user_id",
  *   "rechargeId": "optional_recharge_id"
  * }
  */
+
+interface AdminFixRequest {
+  action: 'fix_orphaned_recharges' | 'retry_failed_payments' | 'recalculate_balance' | 'fix_specific_recharge';
+  userId?: string;
+  rechargeId?: string;
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { action, userId, rechargeId } = await request.json();
+    const body = await request.json() as AdminFixRequest;
+    const { action, userId, rechargeId } = body;
 
     // 验证管理员权限（根据你的认证系统调整）
     const isAdmin = await validateAdminAccess(request);
@@ -38,6 +44,9 @@ export async function POST(request: NextRequest) {
         break;
       
       case "recalculate_balance":
+        if (!userId) {
+          throw new Error("需要提供 userId 进行余额重算");
+        }
         result = await recalculateUserBalance(supabase, userId);
         break;
       
@@ -225,12 +234,12 @@ async function recalculateUserBalance(supabase: any, userId: string) {
   }
 
   const totalRecharged = transactions
-    .filter(t => t.type === 'recharge')
-    .reduce((sum, t) => sum + t.amount, 0);
+    .filter((t: any) => t.type === 'recharge')
+    .reduce((sum: number, t: any) => sum + t.amount, 0);
 
   const totalConsumed = transactions
-    .filter(t => t.type === 'consumption')
-    .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+    .filter((t: any) => t.type === 'consumption')
+    .reduce((sum: number, t: any) => sum + Math.abs(t.amount), 0);
 
   const correctBalance = totalRecharged - totalConsumed;
 
