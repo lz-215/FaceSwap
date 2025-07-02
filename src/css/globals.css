@@ -1,13 +1,6 @@
-@import "tailwindcss";
-
-@plugin "tailwindcss-animate";
-
-@custom-variant dark (&:is(.dark *));
-
-@theme {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-}
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 @layer base {
   *,
@@ -15,81 +8,89 @@
   ::before,
   ::backdrop,
   ::file-selector-button {
-    border-color: var(--color-gray-200, currentColor);
+    border-color: hsl(var(--border));
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
   }
 }
 
 :root {
-  --background: oklch(0.98 0.01 240); /* Slightly off-white blueish */
-  --foreground: oklch(0.1 0.01 240); /* Dark blueish gray */
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.1 0.01 240);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.1 0.01 240);
-  --primary: oklch(0.6 0.15 260); /* Vibrant Blue */
+  --background: 220 15% 98%; /* Slightly off-white blueish */
+  --foreground: 220 15% 10%; /* Dark blueish gray */
+  --card: 0 0% 100%;
+  --card-foreground: 220 15% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 220 15% 10%;
+  --primary: 240 100% 65%; /* Vibrant Blue */
   --primary-rgb: 90, 90, 255;
-  --primary-foreground: oklch(0.98 0.01 240);
-  --secondary: oklch(0.9 0.05 250); /* Light muted blue */
-  --secondary-foreground: oklch(0.1 0.01 240);
-  --muted: oklch(0.95 0.01 240); /* Light gray */
-  --muted-foreground: oklch(0.4 0.01 240);
-  --accent: oklch(0.92 0.08 255); /* Lighter accent blue */
-  --accent-foreground: oklch(0.1 0.01 240);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.98 0.01 240);
-  --border: oklch(0.9 0.02 240); /* Light blueish gray border */
-  --input: oklch(0.9 0.02 240);
-  --ring: oklch(0.6 0.15 260); /* Vibrant Blue for ring */
-  --chart-1: oklch(0.6 0.15 260);
-  --chart-2: oklch(0.7 0.15 270);
-  --chart-3: oklch(0.8 0.15 280);
-  --chart-4: oklch(0.5 0.15 250);
-  --chart-5: oklch(0.4 0.15 240);
+  --primary-foreground: 220 15% 98%;
+  --secondary: 240 20% 90%; /* Light muted blue */
+  --secondary-foreground: 220 15% 10%;
+  --muted: 220 10% 95%; /* Light gray */
+  --muted-foreground: 220 10% 40%;
+  --accent: 240 30% 92%; /* Lighter accent blue */
+  --accent-foreground: 220 15% 10%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 220 15% 98%;
+  --border: 220 13% 90%; /* Light blueish gray border */
+  --input: 220 13% 90%;
+  --ring: 240 100% 65%; /* Vibrant Blue for ring */
+  --chart-1: 240 100% 65%;
+  --chart-2: 250 100% 70%;
+  --chart-3: 260 100% 75%;
+  --chart-4: 230 100% 60%;
+  --chart-5: 220 100% 55%;
   --radius: 0.625rem;
-  --sidebar: oklch(0.96 0.01 240); /* Slightly different background for sidebar */
-  --sidebar-foreground: oklch(0.1 0.01 240);
-  --sidebar-primary: oklch(0.6 0.15 260);
-  --sidebar-primary-foreground: oklch(0.98 0.01 240);
-  --sidebar-accent: oklch(0.9 0.05 250);
-  --sidebar-accent-foreground: oklch(0.1 0.01 240);
-  --sidebar-border: oklch(0.9 0.02 240);
-  --sidebar-ring: oklch(0.6 0.15 260);
+  --sidebar: 220 10% 96%; /* Slightly different background for sidebar */
+  --sidebar-foreground: 220 15% 10%;
+  --sidebar-primary: 240 100% 65%;
+  --sidebar-primary-foreground: 220 15% 98%;
+  --sidebar-accent: 240 20% 90%;
+  --sidebar-accent-foreground: 220 15% 10%;
+  --sidebar-border: 220 13% 90%;
+  --sidebar-ring: 240 100% 65%;
 }
 
 .dark {
-  --background: oklch(0.15 0.02 240); /* Dark blueish gray */
-  --foreground: oklch(0.98 0.01 240); /* Light gray */
-  --card: oklch(0.2 0.02 240);
-  --card-foreground: oklch(0.98 0.01 240);
-  --popover: oklch(0.15 0.02 240);
-  --popover-foreground: oklch(0.98 0.01 240);
-  --primary: oklch(0.6 0.15 260); /* Vibrant Blue */
+  --background: 220 15% 9%; /* Dark blueish gray */
+  --foreground: 220 15% 98%; /* Light gray */
+  --card: 220 13% 12%;
+  --card-foreground: 220 15% 98%;
+  --popover: 220 15% 9%;
+  --popover-foreground: 220 15% 98%;
+  --primary: 240 100% 65%; /* Vibrant Blue */
   --primary-rgb: 90, 90, 255;
-  --primary-foreground: oklch(0.1 0.01 240);
-  --secondary: oklch(0.3 0.05 250); /* Darker muted blue */
-  --secondary-foreground: oklch(0.98 0.01 240);
-  --muted: oklch(0.25 0.02 240); /* Dark gray */
-  --muted-foreground: oklch(0.7 0.01 240);
-  --accent: oklch(0.4 0.08 255); /* Darker accent blue */
-  --accent-foreground: oklch(0.98 0.01 240);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.1 0.01 240);
-  --border: oklch(0.3 0.02 240); /* Dark blueish gray border */
-  --input: oklch(0.3 0.02 240);
-  --ring: oklch(0.6 0.15 260); /* Vibrant Blue for ring */
-  --chart-1: oklch(0.6 0.15 260);
-  --chart-2: oklch(0.7 0.15 270);
-  --chart-3: oklch(0.8 0.15 280);
-  --chart-4: oklch(0.5 0.15 250);
-  --chart-5: oklch(0.4 0.15 240);
-  --sidebar: oklch(0.2 0.02 240); /* Slightly different background for sidebar */
-  --sidebar-foreground: oklch(0.98 0.01 240);
-  --sidebar-primary: oklch(0.6 0.15 260);
-  --sidebar-primary-foreground: oklch(0.1 0.01 240);
-  --sidebar-accent: oklch(0.3 0.05 250);
-  --sidebar-accent-foreground: oklch(0.98 0.01 240);
-  --sidebar-border: oklch(0.3 0.02 240);
-  --sidebar-ring: oklch(0.6 0.15 260);
+  --primary-foreground: 220 15% 10%;
+  --secondary: 240 20% 20%; /* Darker muted blue */
+  --secondary-foreground: 220 15% 98%;
+  --muted: 220 10% 15%; /* Dark gray */
+  --muted-foreground: 220 10% 70%;
+  --accent: 240 30% 25%; /* Darker accent blue */
+  --accent-foreground: 220 15% 98%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 220 15% 10%;
+  --border: 220 13% 20%; /* Dark blueish gray border */
+  --input: 220 13% 20%;
+  --ring: 240 100% 65%; /* Vibrant Blue for ring */
+  --chart-1: 240 100% 65%;
+  --chart-2: 250 100% 70%;
+  --chart-3: 260 100% 75%;
+  --chart-4: 230 100% 60%;
+  --chart-5: 220 100% 55%;
+  --sidebar: 220 13% 12%; /* Slightly different background for sidebar */
+  --sidebar-foreground: 220 15% 98%;
+  --sidebar-primary: 240 100% 65%;
+  --sidebar-primary-foreground: 220 15% 10%;
+  --sidebar-accent: 240 20% 20%;
+  --sidebar-accent-foreground: 220 15% 98%;
+  --sidebar-border: 220 13% 20%;
+  --sidebar-ring: 240 100% 65%;
 }
 
 @theme inline {
@@ -129,16 +130,6 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-}
-
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-
-  body {
-    @apply bg-background text-foreground;
-  }
 }
 
 /* Product card hover effects */

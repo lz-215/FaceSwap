@@ -14,6 +14,14 @@ import {
   CardTitle,
 } from "~/components/ui/card";
 
+// 获取正确的重定向URL
+const getRedirectUrl = (path: string) => {
+  const baseUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (typeof window !== "undefined" ? window.location.origin : "");
+  return `${baseUrl}${path}`;
+};
+
 export function LoginForm({
   className,
   ...props
@@ -31,7 +39,7 @@ export function LoginForm({
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         options: {
-          redirectTo: `${window.location.origin}/auth/oauth?next=/protected`,
+          redirectTo: getRedirectUrl("/auth/oauth?next=/protected"),
         },
         provider: "github",
       });

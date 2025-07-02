@@ -16,6 +16,14 @@ import {
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 
+// 获取正确的重定向URL
+const getRedirectUrl = (path: string) => {
+  const baseUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (typeof window !== "undefined" ? window.location.origin : "");
+  return `${baseUrl}${path}`;
+};
+
 export function ForgotPasswordForm({
   className,
   ...props
@@ -34,7 +42,7 @@ export function ForgotPasswordForm({
     try {
       // The url which will be included in the email. This URL needs to be configured in your redirect URLs in the Supabase dashboard at https://supabase.com/dashboard/project/_/auth/url-configuration
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth/update-password`,
+        redirectTo: getRedirectUrl("/auth/update-password"),
       });
       if (error) throw error;
       setSuccess(true);

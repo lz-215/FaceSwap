@@ -16,6 +16,14 @@ interface PaymentFormProps {
   onSuccess?: () => void;
 }
 
+// 获取正确的重定向URL
+const getRedirectUrl = (path: string) => {
+  const baseUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (typeof window !== "undefined" ? window.location.origin : "");
+  return `${baseUrl}${path}`;
+};
+
 export function PaymentForm({ amount, onError, onSuccess }: PaymentFormProps) {
   const stripe = useStripe();
   const elements = useElements();
@@ -35,7 +43,7 @@ export function PaymentForm({ amount, onError, onSuccess }: PaymentFormProps) {
     try {
       const { error, paymentIntent } = await stripe.confirmPayment({
         confirmParams: {
-          return_url: `${window.location.origin}/payment-test?success=true`,
+          return_url: getRedirectUrl("/payment-test?success=true"),
         },
         elements,
         redirect: "if_required",

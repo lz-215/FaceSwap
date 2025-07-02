@@ -12,8 +12,16 @@ export const createBrowserSupabaseClient = () => {
   );
 };
 
-// 创建并导出 Supabase 客户端实例
+// 创建并导出 Supabase 客户端实例 (保持向后兼容)
 export const supabaseClient = createBrowserSupabaseClient();
+
+// 获取正确的重定向URL
+const getRedirectUrl = (path: string = '/auth/callback') => {
+  // 优先使用环境变量，如果没有设置则回退到当前origin
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 
+    (typeof window !== 'undefined' ? window.location.origin : '');
+  return `${baseUrl}${path}`;
+};
 
 // 认证方法封装
 export const supabaseAuth = {
@@ -26,7 +34,7 @@ export const supabaseAuth = {
   // 重置密码
   resetPassword: async (email: string) => {
     return supabaseClient.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/reset-password`,
+      redirectTo: getRedirectUrl('/auth/reset-password'),
     });
   },
 
@@ -34,7 +42,7 @@ export const supabaseAuth = {
   signInWithOAuth: async (provider: Provider) => {
     return supabaseClient.auth.signInWithOAuth({
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: getRedirectUrl('/auth/callback'),
       },
       provider
     });
@@ -68,7 +76,6 @@ export const supabaseAuth = {
     }
   }
 };
-
 
 // Hook 用于获取和监听认证状态
 export const useSupabaseSession = () => {
