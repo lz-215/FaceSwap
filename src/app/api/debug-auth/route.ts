@@ -28,7 +28,26 @@ export async function GET(request: Request) {
       callback_url_from_request: `${url.origin}/auth/callback`,
       recommended_github_callback: process.env.NEXT_PUBLIC_APP_URL ? 
         `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback` : 
+        `${url.origin}/auth/callback`,
+      recommended_google_callback: process.env.NEXT_PUBLIC_APP_URL ? 
+        `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback` : 
         `${url.origin}/auth/callback`
+    },
+    oauth_providers: {
+      github: {
+        enabled: process.env.NEXT_PUBLIC_SUPABASE_GITHUB_ENABLED === "true",
+        callback_url: process.env.NEXT_PUBLIC_APP_URL ? 
+          `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback` : 
+          `${url.origin}/auth/callback`,
+        config_url: "https://github.com/settings/developers"
+      },
+      google: {
+        enabled: process.env.NEXT_PUBLIC_SUPABASE_GOOGLE_ENABLED === "true",
+        callback_url: process.env.NEXT_PUBLIC_APP_URL ? 
+          `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback` : 
+          `${url.origin}/auth/callback`,
+        config_url: "https://console.cloud.google.com/apis/credentials"
+      }
     },
     recommendations: [] as string[]
   };
@@ -40,13 +59,19 @@ export async function GET(request: Request) {
     debugInfo.recommendations.push("✅ NEXT_PUBLIC_APP_URL 已设置");
   }
 
-  if (process.env.NEXT_PUBLIC_SUPABASE_GITHUB_ENABLED !== "true") {
-    debugInfo.recommendations.push("⚠️ NEXT_PUBLIC_SUPABASE_GITHUB_ENABLED 不为 true");
-  } else {
+  if (process.env.NEXT_PUBLIC_SUPABASE_GITHUB_ENABLED === "true") {
     debugInfo.recommendations.push("✅ GitHub 登录已启用");
+    debugInfo.recommendations.push(`🔧 GitHub OAuth App 回调URL: ${debugInfo.oauth_providers.github.callback_url}`);
+  } else {
+    debugInfo.recommendations.push("⚠️ GitHub 登录未启用");
   }
 
-  debugInfo.recommendations.push(`🔧 请在 GitHub OAuth App 中设置回调URL为: ${debugInfo.calculated_urls.recommended_github_callback}`);
+  if (process.env.NEXT_PUBLIC_SUPABASE_GOOGLE_ENABLED === "true") {
+    debugInfo.recommendations.push("✅ Google 登录已启用");
+    debugInfo.recommendations.push(`🔧 Google OAuth 重定向URI: ${debugInfo.oauth_providers.google.callback_url}`);
+  } else {
+    debugInfo.recommendations.push("⚠️ Google 登录未启用");
+  }
 
   return NextResponse.json(debugInfo);
 } 
