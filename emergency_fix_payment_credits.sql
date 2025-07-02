@@ -3,15 +3,16 @@
 -- =================================================================
 -- 立即解决支付成功后积分没有增加的问题
 
-\echo '🚨 开始紧急修复支付积分问题...'
+-- 🚨 开始紧急修复支付积分问题...
 
 -- 1. 创建服务角色权限策略（绕过RLS限制）
-\echo '1. 应用RLS权限修复...'
+-- 应用RLS权限修复...
 
 -- 删除可能冲突的旧策略
 DROP POLICY IF EXISTS "Service role can manage all credit recharges" ON public.credit_recharge;
 DROP POLICY IF EXISTS "Service role can manage all credit transactions" ON public.credit_transaction;
 DROP POLICY IF EXISTS "Service role can manage all credit balances" ON public.user_credit_balance;
+DROP POLICY IF EXISTS "Service role can read all users" ON public."user";
 
 -- 创建新的服务角色策略
 CREATE POLICY "Service role can manage all credit recharges" 
@@ -24,13 +25,13 @@ CREATE POLICY "Service role can manage all credit balances"
 ON public.user_credit_balance FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- webhook可能需要查询用户信息
-CREATE POLICY IF NOT EXISTS "Service role can read all users" 
+CREATE POLICY "Service role can read all users" 
 ON public."user" FOR SELECT TO service_role USING (true);
 
-\echo '   ✅ RLS权限策略已应用'
+-- ✅ RLS权限策略已应用
 
 -- 2. 创建/更新webhook处理RPC函数
-\echo '2. 创建webhook处理函数...'
+-- 创建webhook处理函数...
 
 CREATE OR REPLACE FUNCTION handle_stripe_webhook_payment_success(
   p_payment_intent_id TEXT,
@@ -164,10 +165,10 @@ $$;
 GRANT EXECUTE ON FUNCTION handle_stripe_webhook_payment_success TO service_role;
 GRANT EXECUTE ON FUNCTION handle_stripe_webhook_payment_success TO authenticated;
 
-\echo '   ✅ Webhook处理函数已创建'
+-- ✅ Webhook处理函数已创建
 
 -- 3. 立即修复所有孤立的充值记录
-\echo '3. 修复孤立的充值记录...'
+-- 修复孤立的充值记录...
 
 -- 创建修复函数
 CREATE OR REPLACE FUNCTION fix_orphaned_recharges()
@@ -244,10 +245,10 @@ $$;
 -- 执行修复
 SELECT fix_orphaned_recharges() AS fix_result;
 
-\echo '   ✅ 孤立充值记录修复完成'
+-- ✅ 孤立充值记录修复完成
 
 -- 4. 创建webhook失败监控表（如果不存在）
-\echo '4. 创建监控表...'
+-- 创建监控表...
 
 CREATE TABLE IF NOT EXISTS webhook_failures (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -267,17 +268,21 @@ CREATE TABLE IF NOT EXISTS webhook_errors (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- 删除可能存在的监控表策略
+DROP POLICY IF EXISTS "Service role can manage webhook failures" ON webhook_failures;
+DROP POLICY IF EXISTS "Service role can manage webhook errors" ON webhook_errors;
+
 -- 为监控表设置RLS策略
-CREATE POLICY IF NOT EXISTS "Service role can manage webhook failures" 
+CREATE POLICY "Service role can manage webhook failures" 
 ON webhook_failures FOR ALL TO service_role USING (true) WITH CHECK (true);
 
-CREATE POLICY IF NOT EXISTS "Service role can manage webhook errors" 
+CREATE POLICY "Service role can manage webhook errors" 
 ON webhook_errors FOR ALL TO service_role USING (true) WITH CHECK (true);
 
-\echo '   ✅ 监控表已创建'
+-- ✅ 监控表已创建
 
 -- 5. 验证修复结果
-\echo '5. 验证修复结果...'
+-- 验证修复结果...
 
 -- 检查RPC函数是否存在
 DO $$
@@ -324,18 +329,22 @@ FROM credit_recharge cr
 LEFT JOIN credit_transaction ct ON cr.id = ct.related_recharge_id
 WHERE cr.created_at >= NOW() - INTERVAL '30 days';
 
-\echo ''
-\echo '🎉 紧急修复完成！'
-\echo ''
-\echo '📋 修复内容：'
-\echo '   ✅ RLS权限策略已应用'
-\echo '   ✅ Webhook处理RPC函数已创建'
-\echo '   ✅ 孤立充值记录已修复'
-\echo '   ✅ 监控表已创建'
-\echo '   ✅ 系统配置已验证'
-\echo ''
-\echo '🚀 下一步：'
-\echo '   1. 检查 Vercel 环境变量配置'
-\echo '   2. 重新部署应用'
-\echo '   3. 测试支付流程'
-\echo '' 
+-- 输出修复完成信息
+DO $$
+BEGIN
+    RAISE NOTICE '';
+    RAISE NOTICE '🎉 紧急修复完成！';
+    RAISE NOTICE '';
+    RAISE NOTICE '📋 修复内容：';
+    RAISE NOTICE '   ✅ RLS权限策略已应用';
+    RAISE NOTICE '   ✅ Webhook处理RPC函数已创建';
+    RAISE NOTICE '   ✅ 孤立充值记录已修复';
+    RAISE NOTICE '   ✅ 监控表已创建';
+    RAISE NOTICE '   ✅ 系统配置已验证';
+    RAISE NOTICE '';
+    RAISE NOTICE '🚀 下一步：';
+    RAISE NOTICE '   1. 检查 Vercel 环境变量配置';
+    RAISE NOTICE '   2. 重新部署应用';
+    RAISE NOTICE '   3. 测试支付流程';
+    RAISE NOTICE '';
+END $$; 
