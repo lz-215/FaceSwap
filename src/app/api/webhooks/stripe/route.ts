@@ -17,9 +17,13 @@ const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
  * 改进版 Stripe Webhook 处理器
  * - 增强错误处理和重试机制
  * - 使用 RPC 函数绕过 RLS 限制
- * - 添加幂等性支持
+ * - 添加详细的日志记录
+ * - 支持幂等性处理
  */
 export async function POST(request: NextRequest) {
+  const startTime = Date.now();
+  let eventId = 'unknown';
+  
   try {
     const body = await request.text();
     const headersList = headers();
@@ -37,21 +41,38 @@ export async function POST(request: NextRequest) {
       webhookSecret,
     );
 
-    console.log(`[webhook] 收到事件: ${event.type}, ID: ${event.id}`);
+    eventId = event.id;
+    console.log(`[webhook] 收到事件: ${event.type}, ID: ${event.id}, 时间戳: ${new Date().toISOString()}`);
 
     // 处理事件（使用幂等性处理）
     const result = await processWebhookEvent(event);
     
-    console.log(`[webhook] 事件处理完成: ${event.type}, 结果:`, result);
+    const processingTime = Date.now() - startTime;
+    console.log(`[webhook] 事件处理完成: ${event.type}, 耗时: ${processingTime}ms, 结果:`, result);
     
-    return NextResponse.json({ success: true, eventId: event.id });
+    return NextResponse.json({ 
+      success: true, 
+      eventId: event.id,
+      processingTime,
+      result 
+    });
   } catch (error) {
-    console.error("[webhook] Webhook 处理错误:", error);
+    const processingTime = Date.now() - startTime;
+    console.error(`[webhook] Webhook 处理错误 (事件ID: ${eventId}, 耗时: ${processingTime}ms):`, error);
+    
+    // 记录错误到数据库（可选）
+    try {
+      await logWebhookError(eventId, error);
+    } catch (logError) {
+      console.error("[webhook] 记录错误日志失败:", logError);
+    }
     
     return NextResponse.json(
       { 
         error: "Webhook 处理错误", 
         success: false,
+        eventId,
+        processingTime,
         message: error instanceof Error ? error.message : "未知错误"
       },
       { status: 500 },
@@ -60,7 +81,6 @@ export async function POST(request: NextRequest) {
 }
 
 async function processWebhookEvent(event: Stripe.Event) {
-  // 记录事件处理开始
   console.log(`[webhook] 开始处理事件: ${event.type}`);
 
   try {
@@ -83,6 +103,166 @@ async function processWebhookEvent(event: Stripe.Event) {
   }
 }
 
+/**
+ * 支付成功处理（改进版）
+ */
+async function handlePaymentIntentSucceeded(event: Stripe.Event) {
+  const paymentIntent = event.data.object as Stripe.PaymentIntent;
+  const { metadata } = paymentIntent;
+
+  console.log(`[webhook] 处理支付成功: ${paymentIntent.id}, 金额: ${paymentIntent.amount}, 元数据:`, metadata);
+
+  // 检查是否是积分充值
+  if (metadata && metadata.type === "credit_recharge") {
+    const { rechargeId, userId, credits } = metadata;
+    
+    if (!rechargeId) {
+      console.error(`[webhook] 积分充值支付缺少 rechargeId: ${paymentIntent.id}`);
+      throw new Error("积分充值支付缺少 rechargeId");
+    }
+
+    console.log(`[webhook] 开始处理积分充值: 用户=${userId}, 充值ID=${rechargeId}, 积分=${credits}`);
+
+    try {
+      // 优先使用 RPC 函数处理支付成功
+      const result = await processPaymentWithRPC(paymentIntent.id, rechargeId);
+      
+      if (result.success) {
+        console.log(`[webhook] RPC 函数处理成功:`, {
+          rechargeId,
+          paymentIntentId: paymentIntent.id,
+          userId,
+          credits,
+          balance: result.balance,
+          duplicate: result.duplicate,
+        });
+
+        return {
+          handled: true,
+          type: "credit_recharge",
+          method: "rpc",
+          rechargeId,
+          success: true,
+          duplicate: result.duplicate,
+          balance: result.balance,
+          transactionId: result.transactionId,
+        };
+      }
+    } catch (rpcError) {
+      console.error(`[webhook] RPC 函数处理失败: ${rechargeId}`, rpcError);
+    }
+
+    // 备用方法：直接使用服务层函数
+    try {
+      console.log(`[webhook] 尝试使用备用方法处理支付: ${rechargeId}`);
+      
+      const result = await handleCreditRechargeWithTransaction(rechargeId, paymentIntent.id);
+      
+      console.log(`[webhook] 备用方法处理成功:`, {
+        rechargeId,
+        paymentIntentId: paymentIntent.id,
+        userId,
+        credits,
+        balance: result.balance,
+      });
+
+      return {
+        handled: true,
+        type: "credit_recharge",
+        method: "fallback",
+        rechargeId,
+        success: true,
+        duplicate: result.duplicate,
+        balance: result.balance,
+      };
+    } catch (fallbackError) {
+      console.error(`[webhook] 备用方法也失败: ${rechargeId}`, fallbackError);
+      
+      // 记录失败的支付以便后续手动处理
+      await recordFailedPayment(paymentIntent.id, rechargeId, fallbackError);
+      
+      throw new Error(`所有处理方法都失败了: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`);
+    }
+  }
+
+  // 处理其他类型的支付（如订阅支付）
+  console.log(`[webhook] 非积分充值支付，跳过处理: ${paymentIntent.id}`);
+  return { handled: false, reason: "not_credit_recharge" };
+}
+
+/**
+ * 使用 RPC 函数处理支付
+ */
+async function processPaymentWithRPC(paymentIntentId: string, rechargeId: string) {
+  const supabase = await createClient();
+  
+  console.log(`[webhook] 调用 RPC 函数处理支付: ${rechargeId}, ${paymentIntentId}`);
+  
+  const { data, error } = await supabase.rpc('handle_stripe_webhook_payment_success', {
+    p_payment_intent_id: paymentIntentId,
+    p_recharge_id: rechargeId
+  });
+
+  if (error) {
+    console.error(`[webhook] RPC 函数调用失败: ${rechargeId}`, error);
+    throw new Error(`RPC 函数失败: ${error.message}`);
+  }
+
+  console.log(`[webhook] RPC 函数返回结果:`, data);
+  
+  return {
+    success: data?.success || false,
+    duplicate: data?.duplicate || false,
+    balance: data?.newBalance || 0,
+    transactionId: data?.transactionId,
+  };
+}
+
+/**
+ * 记录失败的支付
+ */
+async function recordFailedPayment(paymentIntentId: string, rechargeId: string, error: any) {
+  try {
+    const supabase = await createClient();
+    
+    await supabase
+      .from('webhook_failures')
+      .insert({
+        payment_intent_id: paymentIntentId,
+        recharge_id: rechargeId,
+        error_message: error instanceof Error ? error.message : String(error),
+        created_at: new Date().toISOString(),
+      });
+    
+    console.log(`[webhook] 已记录失败的支付: ${paymentIntentId}`);
+  } catch (logError) {
+    console.error(`[webhook] 记录失败支付时出错:`, logError);
+  }
+}
+
+/**
+ * 记录webhook错误
+ */
+async function logWebhookError(eventId: string, error: any) {
+  try {
+    const supabase = await createClient();
+    
+    await supabase
+      .from('webhook_errors')
+      .insert({
+        event_id: eventId,
+        error_message: error instanceof Error ? error.message : String(error),
+        error_stack: error instanceof Error ? error.stack : '',
+        created_at: new Date().toISOString(),
+      });
+  } catch (logError) {
+    console.error(`[webhook] 记录webhook错误时失败:`, logError);
+  }
+}
+
+/**
+ * 处理订阅变更
+ */
 async function handleSubscriptionChange(event: Stripe.Event) {
   const subscription = event.data.object as Stripe.Subscription;
   const customerId = subscription.customer as string;
@@ -198,123 +378,16 @@ async function handleSubscriptionBonusCredits(subscription: Stripe.Subscription,
 
     try {
       await addBonusCreditsWithTransaction(userId, bonusCredits, reason, {
-        reason: "subscription_bonus",
         subscriptionId: subscription.id,
-      });
-
-      console.log(`[webhook] 订阅积分奖励成功`, {
-        userId,
-        subscriptionId: subscription.id,
-        bonusCredits,
-      });
-    } catch (error) {
-      console.error(`[webhook] 订阅积分奖励失败`, {
-        userId,
-        subscriptionId: subscription.id,
-        error: error instanceof Error ? error.message : error,
+        bonusType: "subscription_welcome",
       });
       
-      // 不抛出错误，避免影响订阅创建
-      console.warn(`[webhook] 积分奖励失败但不影响订阅，请手动处理用户 ${userId} 的积分`);
+      console.log(`[webhook] 订阅奖励积分处理成功: ${userId}`);
+    } catch (error) {
+      console.error(`[webhook] 订阅奖励积分处理失败: ${userId}`, error);
+      // 不抛出错误，因为订阅本身已经成功
     }
   } catch (error) {
-    console.error(`[webhook] 处理订阅奖励积分时出错`, error);
-    // 不抛出错误，避免影响订阅处理
+    console.error(`[webhook] 订阅奖励积分处理时出错: ${userId}`, error);
   }
-}
-
-/**
- * 支付成功处理（改进版 - 使用 RPC 函数）
- */
-async function handlePaymentIntentSucceeded(event: Stripe.Event) {
-  const paymentIntent = event.data.object as Stripe.PaymentIntent;
-  const { metadata } = paymentIntent;
-
-  console.log(`[webhook] 处理支付成功: ${paymentIntent.id}, 金额: ${paymentIntent.amount}`);
-
-  // 检查是否是积分充值
-  if (metadata && metadata.type === "credit_recharge") {
-    const { rechargeId } = metadata;
-    
-    if (!rechargeId) {
-      console.error(`[webhook] 积分充值支付缺少 rechargeId: ${paymentIntent.id}`);
-      throw new Error("积分充值支付缺少 rechargeId");
-    }
-
-    try {
-      // 使用 Supabase RPC 函数处理支付成功，绕过 RLS 限制
-      const supabase = await createClient();
-      
-      console.log(`[webhook] 调用 RPC 函数处理支付: ${rechargeId}, ${paymentIntent.id}`);
-      
-      const { data: result, error } = await supabase.rpc('handle_stripe_webhook_payment_success', {
-        p_payment_intent_id: paymentIntent.id,
-        p_recharge_id: rechargeId
-      });
-
-      if (error) {
-        console.error(`[webhook] RPC 函数调用失败:`, error);
-        throw new Error(`RPC 函数调用失败: ${error.message}`);
-      }
-
-      if (!result || !result.success) {
-        console.error(`[webhook] RPC 函数返回失败结果:`, result);
-        throw new Error(`RPC 函数处理失败: ${result?.message || '未知错误'}`);
-      }
-      
-      console.log(`[webhook] 积分充值处理成功:`, {
-        rechargeId,
-        paymentIntentId: paymentIntent.id,
-        userId: metadata.userId,
-        credits: metadata.credits,
-        balance: result.balance,
-        duplicate: result.duplicate,
-        rpcResult: result
-      });
-
-      return {
-        handled: true,
-        type: "credit_recharge",
-        rechargeId,
-        success: true,
-        duplicate: result.duplicate,
-        balance: result.balance,
-        transactionId: result.transactionId,
-      };
-    } catch (error) {
-      console.error(`[webhook] 积分充值处理失败: ${rechargeId}`, error);
-      
-      // 如果 RPC 函数失败，尝试使用备用方法
-      console.log(`[webhook] 尝试使用备用方法处理支付: ${rechargeId}`);
-      
-      try {
-        const result = await handleCreditRechargeWithTransaction(rechargeId, paymentIntent.id);
-        
-        console.log(`[webhook] 备用方法处理成功:`, {
-          rechargeId,
-          paymentIntentId: paymentIntent.id,
-          userId: metadata.userId,
-          credits: metadata.credits,
-          balance: result.balance,
-        });
-
-        return {
-          handled: true,
-          type: "credit_recharge",
-          rechargeId,
-          success: true,
-          duplicate: result.duplicate,
-          balance: result.balance,
-          method: "fallback"
-        };
-      } catch (fallbackError) {
-        console.error(`[webhook] 备用方法也失败: ${rechargeId}`, fallbackError);
-        throw fallbackError;
-      }
-    }
-  }
-
-  // 处理其他类型的支付（如订阅支付）
-  console.log(`[webhook] 非积分充值支付，跳过处理: ${paymentIntent.id}`);
-  return { handled: false, reason: "not_credit_recharge" };
 }
