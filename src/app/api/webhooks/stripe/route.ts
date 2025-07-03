@@ -649,6 +649,21 @@ async function handleSubscriptionChange(event: Stripe.Event) {
       throw syncError;
     }
 
+    // 如果通过任何方式找到了 userId，自动补全所有待处理订阅
+    if (userId) {
+      // 自动修正所有该 customer_id 下的待处理订阅
+      const { error: fixPendingError } = await supabase
+        .from("stripe_subscription")
+        .update({ user_id: userId })
+        .eq("customer_id", customerId)
+        .like("user_id", "pending_%");
+      if (fixPendingError) {
+        console.error(`[webhook] 自动补全历史待处理订阅失败:`, fixPendingError);
+      } else {
+        console.log(`[webhook] 已自动补全所有待处理订阅 user_id: ${userId}, customer_id: ${customerId}`);
+      }
+    }
+
   } catch (error) {
     console.error(`[webhook] 订阅处理失败: ${subscription.id}`, error);
     throw error;
