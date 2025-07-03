@@ -2,10 +2,18 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useSupabaseSession } from "~/lib/supabase-auth-client";
 
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "~/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "~/components/ui/card";
 
 interface PaymentFormProps {
   buttonText?: string;
@@ -27,20 +35,25 @@ export function PaymentForm({
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<null | string>(null);
+  const { user } = useSupabaseSession();
 
   const handleCheckout = async () => {
+    if (!user) {
+      router.push("/auth/sign-in");
+      return;
+    }
     setIsLoading(true);
     setError(null);
-    
+
     try {
       let url = "/auth/checkout";
-      
+
       if (productSlug) {
         url += `/${productSlug}`;
       } else if (productId) {
         url += `?productId=${productId}`;
       }
-      
+
       router.push(url);
       if (onSuccess) {
         onSuccess();
@@ -68,8 +81,8 @@ export function PaymentForm({
         )}
       </CardContent>
       <CardFooter>
-        <Button 
-          className="w-full" 
+        <Button
+          className="w-full"
           disabled={isLoading}
           onClick={handleCheckout}
         >

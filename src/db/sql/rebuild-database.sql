@@ -24,6 +24,10 @@ DROP FUNCTION IF EXISTS add_credits CASCADE;
 DROP FUNCTION IF EXISTS get_credits CASCADE;
 DROP FUNCTION IF EXISTS log_face_swap CASCADE;
 DROP FUNCTION IF EXISTS update_updated_at_column CASCADE;
+DROP FUNCTION IF EXISTS get_user_credits_v2(TEXT) CASCADE;
+-- **IMPORTANT: Add this line to drop the existing function correctly**
+DROP FUNCTION IF EXISTS get_or_create_user_credit_balance(TEXT) CASCADE;
+
 
 -- 2. 删除现有的表（按依赖关系顺序）
 DROP TABLE IF EXISTS face_swap_history CASCADE;
@@ -234,6 +238,29 @@ CREATE TABLE pending_bonus_credits (
 );
 
 -- =================================================================
+-- 删除现有的索引
+-- =================================================================
+
+DROP INDEX IF EXISTS idx_user_email;
+DROP INDEX IF EXISTS idx_user_credit_balance_user_id;
+DROP INDEX IF EXISTS idx_subscription_credits_user_id;
+DROP INDEX IF EXISTS idx_subscription_credits_subscription_id;
+DROP INDEX IF EXISTS idx_subscription_credits_status;
+DROP INDEX IF EXISTS idx_subscription_credits_end_date;
+DROP INDEX IF EXISTS idx_credit_transaction_user_id;
+DROP INDEX IF EXISTS idx_credit_transaction_created_at;
+DROP INDEX IF EXISTS idx_credit_transaction_type;
+DROP INDEX IF EXISTS idx_stripe_customer_user_id;
+DROP INDEX IF EXISTS idx_stripe_customer_customer_id;
+DROP INDEX IF EXISTS idx_stripe_subscription_user_id;
+DROP INDEX IF EXISTS idx_stripe_subscription_subscription_id;
+DROP INDEX IF EXISTS idx_face_swap_history_user_id;
+DROP INDEX IF EXISTS idx_face_swap_history_created_at;
+DROP INDEX IF EXISTS idx_uploads_user_id;
+DROP INDEX IF EXISTS idx_pending_bonus_credits_user_id;
+DROP INDEX IF EXISTS idx_pending_bonus_credits_status;
+
+-- =================================================================
 -- 创建索引
 -- =================================================================
 
@@ -327,6 +354,33 @@ CREATE TRIGGER update_pending_bonus_credits_updated_at
     EXECUTE FUNCTION update_updated_at_column();
 
 -- =================================================================
+-- 删除现有的 RLS 策略
+-- =================================================================
+
+DROP POLICY IF EXISTS "Users can view own profile" ON "user";
+DROP POLICY IF EXISTS "Users can update own profile" ON "user";
+DROP POLICY IF EXISTS "Service role can insert new users" ON "user";
+DROP POLICY IF EXISTS "Anonymous users can insert during auth" ON "user";
+DROP POLICY IF EXISTS "Authenticated users can insert their own profile" ON "user";
+DROP POLICY IF EXISTS "Anyone can view active credit packages" ON credit_package;
+DROP POLICY IF EXISTS "Anyone can view active credit consumption config" ON credit_consumption_config;
+DROP POLICY IF EXISTS "Users can view own credit balance" ON user_credit_balance;
+DROP POLICY IF EXISTS "Service can manage credit balance" ON user_credit_balance;
+DROP POLICY IF EXISTS "Users can view own subscription credits" ON subscription_credits;
+DROP POLICY IF EXISTS "Service can manage subscription credits" ON subscription_credits;
+DROP POLICY IF EXISTS "Users can view own credit transactions" ON credit_transaction;
+DROP POLICY IF EXISTS "Service can manage credit transactions" ON credit_transaction;
+DROP POLICY IF EXISTS "Users can view own stripe customer" ON stripe_customer;
+DROP POLICY IF EXISTS "Service can manage stripe customers" ON stripe_customer;
+DROP POLICY IF EXISTS "Users can view own stripe subscriptions" ON stripe_subscription;
+DROP POLICY IF EXISTS "Service can manage stripe subscriptions" ON stripe_subscription;
+DROP POLICY IF EXISTS "Users can manage own settings" ON user_settings;
+DROP POLICY IF EXISTS "Users can view own face swap history" ON face_swap_history;
+DROP POLICY IF EXISTS "Service can manage face swap history" ON face_swap_history;
+DROP POLICY IF EXISTS "Users can manage own uploads" ON uploads;
+DROP POLICY IF EXISTS "Service can manage pending bonus credits" ON pending_bonus_credits;
+
+-- =================================================================
 -- 启用行级安全策略 (RLS)
 -- =================================================================
 
@@ -354,6 +408,21 @@ CREATE POLICY "Users can view own profile" ON "user"
 CREATE POLICY "Users can update own profile" ON "user"
     FOR UPDATE USING (auth.uid()::TEXT = id);
 
+CREATE POLICY "Service role can insert new users" ON "user"
+    FOR INSERT
+    TO service_role
+    WITH CHECK (true);
+
+CREATE POLICY "Authenticated users can insert their own profile" ON "user"
+    FOR INSERT
+    TO authenticated
+    WITH CHECK (auth.uid()::TEXT = id);
+
+CREATE POLICY "Anonymous users can insert during auth" ON "user"
+    FOR INSERT
+    TO anon
+    WITH CHECK (true);
+
 -- 积分套餐策略（所有人可查看）
 CREATE POLICY "Anyone can view active credit packages" ON credit_package
     FOR SELECT USING (is_active = true);
@@ -365,6 +434,11 @@ CREATE POLICY "Anyone can view active credit consumption config" ON credit_consu
 -- 用户积分余额策略
 CREATE POLICY "Users can view own credit balance" ON user_credit_balance
     FOR SELECT USING (auth.uid()::TEXT = user_id);
+
+CREATE POLICY "Users can insert own credit balance" ON user_credit_balance
+    FOR INSERT
+    TO authenticated, anon
+    WITH CHECK (auth.uid()::TEXT = user_id);
 
 CREATE POLICY "Service can manage credit balance" ON user_credit_balance
     FOR ALL TO service_role USING (true) WITH CHECK (true);
@@ -401,6 +475,14 @@ CREATE POLICY "Service can manage stripe subscriptions" ON stripe_subscription
 CREATE POLICY "Users can manage own settings" ON user_settings
     FOR ALL USING (auth.uid()::TEXT = user_id);
 
+CREATE POLICY "Service can manage user settings" ON user_settings
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "Users can insert own settings" ON user_settings
+    FOR INSERT
+    TO authenticated, anon
+    WITH CHECK (auth.uid()::TEXT = user_id);
+
 -- 人脸交换历史策略
 CREATE POLICY "Users can view own face swap history" ON face_swap_history
     FOR SELECT USING (auth.uid()::TEXT = user_id);
@@ -431,4 +513,166 @@ INSERT INTO credit_consumption_config (action_type, credits_required, descriptio
 ('image_upload', 0, '图片上传'),
 ('image_download', 0, '图片下载');
 
-COMMIT; 
+-- =================================================================
+-- 创建函数
+-- =================================================================
+
+-- 初始化用户积分余额
+-- **IMPORTANT: The DROP FUNCTION above has been moved to the beginning of the script for proper ordering.**
+CREATE OR REPLACE FUNCTION get_or_create_user_credit_balance(p_user_id TEXT)
+RETURNS TABLE (
+    balance INTEGER,
+    total_recharged INTEGER,
+    total_consumed INTEGER
+) LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    initial_credits INTEGER := 5; -- 新用户赠送的初始积分
+    is_new_insertion BOOLEAN := FALSE; -- Flag to check if a new row was inserted
+BEGIN
+    -- Attempt to insert a new user credit record
+    INSERT INTO user_credit_balance (
+        user_id,
+        balance,
+        total_recharged,
+        total_consumed
+    )
+    VALUES (
+        p_user_id,
+        initial_credits,
+        initial_credits, -- Initial bonus counts as recharged
+        0
+    )
+    ON CONFLICT (user_id) DO UPDATE SET
+        updated_at = NOW() -- Just update the timestamp if it already exists
+    RETURNING (xmax = 0) INTO is_new_insertion; -- Check if a new row was inserted (xmax = 0 for new rows)
+
+    -- If a new user row was just inserted, record the bonus credit transaction
+    IF is_new_insertion THEN
+        INSERT INTO credit_transaction (
+            user_id,
+            amount,
+            type,
+            description,
+            balance_after,
+            metadata
+        )
+        VALUES (
+            p_user_id,
+            initial_credits,
+            'bonus',
+            '新用户注册赠送积分',
+            initial_credits,
+            jsonb_build_object('reason', 'new_user_bonus')
+        );
+    END IF;
+
+    -- Return the user's current credit status
+    RETURN QUERY
+    SELECT 
+        ucb.balance,
+        ucb.total_recharged,
+        ucb.total_consumed
+    FROM user_credit_balance ucb
+    WHERE ucb.user_id = p_user_id;
+END;
+$$;
+
+-- **IMPORTANT: Grant EXECUTE permission to the service_role**
+GRANT EXECUTE ON FUNCTION public.get_or_create_user_credit_balance(TEXT) TO service_role;
+
+-- =================================================================
+-- 获取用户积分余额（自动初始化新用户）
+-- =================================================================
+CREATE OR REPLACE FUNCTION get_user_credits_v2(p_user_id TEXT)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_balance_info RECORD;
+  v_subscription_credits JSONB;
+  initial_credits INTEGER := 5; -- 新用户初始积分
+  is_new_insertion BOOLEAN := FALSE;
+BEGIN
+  -- 尝试插入新用户积分记录（如不存在）
+  INSERT INTO user_credit_balance (
+    user_id,
+    balance,
+    total_recharged,
+    total_consumed
+  )
+  VALUES (
+    p_user_id,
+    initial_credits,
+    initial_credits,
+    0
+  )
+  ON CONFLICT (user_id) DO NOTHING;
+
+  -- 如果是新用户，记录赠送积分交易
+  GET DIAGNOSTICS is_new_insertion = ROW_COUNT;
+  IF is_new_insertion THEN
+    INSERT INTO credit_transaction (
+      user_id,
+      amount,
+      type,
+      description,
+      balance_after,
+      metadata
+    )
+    VALUES (
+      p_user_id,
+      initial_credits,
+      'bonus',
+      '新用户注册赠送积分',
+      initial_credits,
+      jsonb_build_object('reason', 'new_user_bonus')
+    );
+  END IF;
+
+  -- 查询积分余额
+  SELECT 
+    balance,
+    total_recharged,
+    total_consumed,
+    created_at,
+    updated_at
+  INTO v_balance_info
+  FROM user_credit_balance
+  WHERE user_id = p_user_id;
+
+  -- 查询活跃订阅积分
+  SELECT COALESCE(
+    jsonb_agg(
+      jsonb_build_object(
+        'subscriptionId', subscription_id,
+        'credits', credits,
+        'remainingCredits', remaining_credits,
+        'startDate', start_date,
+        'endDate', end_date,
+        'status', status
+      )
+    ), 
+    '[]'::jsonb
+  ) INTO v_subscription_credits
+  FROM subscription_credits
+  WHERE user_id = p_user_id AND status = 'active';
+
+  RETURN jsonb_build_object(
+    'balance', v_balance_info.balance,
+    'totalRecharged', v_balance_info.total_recharged,
+    'totalConsumed', v_balance_info.total_consumed,
+    'subscriptionCredits', v_subscription_credits,
+    'createdAt', v_balance_info.created_at,
+    'updatedAt', v_balance_info.updated_at,
+    'exists', TRUE
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_user_credits_v2(TEXT) TO service_role, authenticated;
+
+-- =================================================================
+
+COMMIT;

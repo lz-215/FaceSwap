@@ -12,28 +12,74 @@ export async function createCustomer(
 ) {
   try {
     const supabase = await createClient();
-    
-    const customer = await stripe.customers.create({
-      email,
-      metadata: {
-        userId,
-      },
-      name: name || email,
-    });
 
+    // 先检查是否已存在stripe_customer记录
+    const { data: existingCustomer } = await supabase
+      .from("stripe_customer")
+      .select("*")
+      .eq("user_id", userId)
+      .single();
+
+    // 如果已有记录，验证Stripe客户是否存在
+    if (existingCustomer) {
+      try {
+        const customer = await stripe.customers.retrieve(existingCustomer.customer_id);
+        if (!customer.deleted) {
+          return customer;
+        }
+        // 如果客户已被删除，继续创建新客户
+      } catch (error) {
+        console.error("获取Stripe客户失败，将创建新客户:", error);
+      }
+    }
+
+    // 查找Stripe是否已有该邮箱的customer
+    let customer;
+    const customers = await stripe.customers.list({ email, limit: 1 });
+    if (customers.data.length > 0) {
+      customer = customers.data[0];
+    } else {
+      customer = await stripe.customers.create({
+        email,
+        metadata: {
+          userId,
+        },
+        name: name || email,
+      });
+    }
+
+    // 更新或插入stripe_customer记录
     const { error } = await supabase
       .from("stripe_customer")
-      .insert({
-        id: createId(),
+      .upsert({
+        id: existingCustomer?.id || createId(),
         user_id: userId,
         customer_id: customer.id,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+      }, { 
+        onConflict: "user_id",  // 使用user_id作为冲突检测字段
       });
 
     if (error) {
       console.error("保存客户信息到数据库失败:", error);
-      throw error;
+      // 如果是唯一约束冲突，尝试更新现有记录
+      if (error.code === '23505') {  // PostgreSQL unique violation code
+        const { error: updateError } = await supabase
+          .from("stripe_customer")
+          .update({
+            customer_id: customer.id,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("user_id", userId);
+        
+        if (updateError) {
+          console.error("更新客户信息失败:", updateError);
+          throw updateError;
+        }
+      } else {
+        throw error;
+      }
     }
 
     return customer;

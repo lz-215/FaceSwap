@@ -1,17 +1,52 @@
 {
-  "typescript.tsdk": "node_modules\\typescript\\lib",
-  "editor.formatOnSave": true,
+  "[markdown]": {
+    "editor.defaultFormatter": "DavidAnson.vscode-markdownlint"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "denoland.vscode-deno"
+  },
+  "deno.enablePaths": [
+    "supabase/functions"
+  ],
+  "deno.lint": true,
+  "deno.unstable": [
+    "bare-node-builtins",
+    "byonm",
+    "sloppy-imports",
+    "unsafe-proto",
+    "webgpu",
+    "broadcast-channel",
+    "worker-options",
+    "cron",
+    "kv",
+    "ffi",
+    "fs",
+    "http",
+    "net"
+  ],
   "editor.codeActionsOnSave": {
     "source.fixAll": "explicit",
     "source.organizeImports": "never"
   },
   "editor.defaultFormatter": "biomejs.biome",
-  "[markdown]": { "editor.defaultFormatter": "DavidAnson.vscode-markdownlint" },
-  "markdownlint.config": { "MD033": false },
+  "editor.formatOnSave": true,
   "eslint.rules.customizations": [
-    { "rule": "readable-tailwind/*", "severity": "off" },
-    { "rule": "perfectionist/*", "severity": "off" }
+    {
+      "rule": "readable-tailwind/*",
+      "severity": "off"
+    },
+    {
+      "rule": "perfectionist/*",
+      "severity": "off"
+    }
   ],
-  "i18n-ally.localesPaths": ["messages", "src/i18n"],
-  "i18n-ally.keystyle": "nested"
+  "i18n-ally.keystyle": "nested",
+  "i18n-ally.localesPaths": [
+    "messages",
+    "src/i18n"
+  ],
+  "markdownlint.config": {
+    "MD033": false
+  },
+  "typescript.tsdk": "node_modules\\typescript\\lib"
 }

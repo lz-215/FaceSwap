@@ -41,19 +41,16 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "用户信息不存在" }, { status: 400 });
       }
 
-      const newCustomer = await createCustomer(
+      await createCustomer(
         user.id,
         userInfo.email,
         userInfo.name,
       );
-      
-      customer = {
-        id: "",
-        user_id: user.id,
-        customer_id: newCustomer.id,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
+      // 重新查数据库，确保stripe_customer表有记录
+      customer = await getCustomerByUserId(user.id);
+      if (!customer) {
+        return NextResponse.json({ error: "Stripe客户创建失败" }, { status: 500 });
+      }
     }
 
     // 创建结账会话
@@ -76,7 +73,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ 
       url: checkoutSession.url,
-      sessionId: checkoutSession.id 
+      sessionId: checkoutSession.id,
+      customerId: customer.customer_id
     });
 
   } catch (error) {

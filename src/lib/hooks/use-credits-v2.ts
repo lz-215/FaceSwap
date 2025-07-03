@@ -65,7 +65,7 @@ export function useCreditsV2() {
       setCredits(prev => ({ ...prev, isLoading: true, error: null }));
 
       const { data, error } = await supabaseClient.rpc('get_user_credits_v2', {
-        user_id: user.id,
+        p_user_id: user.id,
       });
 
       console.log('🔍 useCreditsV2: 积分查询结果', { data, error });

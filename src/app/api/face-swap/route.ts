@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
     try {
       const supabase = await createClient();
       const { data: balanceData, error: balanceError } = await supabase.rpc('get_user_credits_v2', {
-        user_id: user.id,
+        p_user_id: user.id,
       });
 
       if (balanceError) {

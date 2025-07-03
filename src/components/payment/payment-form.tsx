@@ -7,8 +7,10 @@ import {
   useStripe,
 } from "@stripe/react-stripe-js";
 import { useState } from "react";
+import { useRouter } from "next/router";
 
 import { Button } from "~/components/ui/button";
+import { useSupabaseSession } from "~/lib/supabase-auth-client";
 
 interface PaymentFormProps {
   amount: number;
@@ -29,11 +31,18 @@ export function PaymentForm({ amount, onError, onSuccess }: PaymentFormProps) {
   const elements = useElements();
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const router = useRouter();
+  const { user } = useSupabaseSession();
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
 
     if (!stripe || !elements) {
+      return;
+    }
+
+    if (!user) {
+      router.push("/auth/sign-in");
       return;
     }
 

@@ -3,6 +3,8 @@
 import { Elements } from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useSupabaseSession } from "~/lib/supabase-auth-client";
 
 import { PaymentForm } from "~/components/payment/payment-form";
 import { Button } from "~/components/ui/button";
@@ -46,8 +48,14 @@ export function SubscriptionModal({
   const [subscriptionId, setSubscriptionId] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const router = useRouter();
+  const { user } = useSupabaseSession();
 
   const createSubscription = async () => {
+    if (!user) {
+      router.push("/auth/sign-in");
+      return;
+    }
     setLoading(true);
     setError("");
 

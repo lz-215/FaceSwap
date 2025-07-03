@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import type Stripe from "stripe";
+import { createId } from "@paralleldrive/cuid2";
 
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
@@ -24,17 +25,31 @@ export async function POST(request: NextRequest) {
   const startTime = Date.now();
   let eventId = 'unknown';
   
+  // 添加初始日志
+  console.log('------------------------');
+  console.log(`[webhook] 收到Stripe Webhook请求 - ${new Date().toISOString()}`);
+  console.log(`[webhook] 请求方法: ${request.method}`);
+  console.log(`[webhook] 请求头:`, Object.fromEntries(request.headers));
+  
   try {
     const body = await request.text();
+    console.log(`[webhook] 收到原始请求体:`, body.substring(0, 500) + (body.length > 500 ? '...' : ''));
+    
     const headersList = headers();
     const signature = (await headersList).get("stripe-signature");
 
     if (!signature || !webhookSecret) {
-      console.error("[webhook] Webhook 签名验证失败 - 缺少签名或密钥");
-      return new NextResponse("Webhook 签名验证失败", { status: 400 });
+      console.error("[webhook] Webhook签名验证失败 - 缺少签名或密钥");
+      console.error({
+        hasSignature: !!signature,
+        hasWebhookSecret: !!webhookSecret,
+        signature: signature?.substring(0, 20) + '...',
+      });
+      return new NextResponse("Webhook签名验证失败", { status: 400 });
     }
 
-    // 验证 webhook 签名
+    // 验证webhook签名
+    console.log("[webhook] 开始验证Webhook签名");
     const event = stripe.webhooks.constructEvent(
       body,
       signature,
@@ -42,7 +57,7 @@ export async function POST(request: NextRequest) {
     );
 
     eventId = event.id;
-    console.log(`[webhook] 收到事件: ${event.type}, ID: ${event.id}, 时间戳: ${new Date().toISOString()}`);
+    console.log(`[webhook] 签名验证成功! 事件类型: ${event.type}, ID: ${event.id}`);
 
     // 处理事件（使用幂等性处理）
     const result = await processWebhookEvent(event);
@@ -82,16 +97,29 @@ export async function POST(request: NextRequest) {
 
 async function processWebhookEvent(event: Stripe.Event) {
   console.log(`[webhook] 开始处理事件: ${event.type}`);
+  console.log(`[webhook] 事件详情:`, {
+    id: event.id,
+    type: event.type,
+    created: new Date(event.created * 1000).toISOString(),
+    hasData: !!event.data,
+    hasObject: !!event.data?.object,
+  });
 
   try {
     switch (event.type) {
       case "customer.subscription.created":
       case "customer.subscription.deleted":
       case "customer.subscription.updated":
-        return await handleSubscriptionChange(event);
+        console.log(`[webhook] 开始处理订阅事件: ${event.type}`);
+        const result = await handleSubscriptionChange(event);
+        console.log(`[webhook] 订阅事件处理完成:`, result);
+        return result;
       
       case "payment_intent.succeeded":
-        return await handlePaymentIntentSucceeded(event);
+        console.log(`[webhook] 开始处理支付成功事件`);
+        const paymentResult = await handlePaymentIntentSucceeded(event);
+        console.log(`[webhook] 支付事件处理完成:`, paymentResult);
+        return paymentResult;
       
       default:
         console.log(`[webhook] 未处理的事件类型: ${event.type}`);
@@ -111,10 +139,26 @@ async function handlePaymentIntentSucceeded(event: Stripe.Event) {
   const { metadata } = paymentIntent;
 
   console.log(`[webhook] 处理支付成功: ${paymentIntent.id}, 金额: ${paymentIntent.amount}, 元数据:`, metadata);
+  console.log(`[webhook] PaymentIntent完整数据:`, {
+    id: paymentIntent.id,
+    amount: paymentIntent.amount,
+    currency: paymentIntent.currency,
+    customer: paymentIntent.customer,
+    status: paymentIntent.status,
+    metadata: paymentIntent.metadata,
+  });
 
   // 检查是否是积分充值
   if (metadata && metadata.type === "credit_recharge") {
     let { rechargeId, userId, credits } = metadata;
+    
+    console.log(`[webhook] 积分充值初始数据:`, {
+      rechargeId,
+      userId,
+      credits,
+      hasCustomerId: !!paymentIntent.customer,
+      customerId: paymentIntent.customer,
+    });
     
     if (!rechargeId) {
       console.error(`[webhook] 积分充值支付缺少 rechargeId: ${paymentIntent.id}`);
@@ -125,57 +169,125 @@ async function handlePaymentIntentSucceeded(event: Stripe.Event) {
     if (!userId) {
       const supabase = await createClient();
       const customerId = paymentIntent.customer as string;
+      console.log(`[webhook] 开始查找用户ID - customerId: ${customerId}`);
 
       if (customerId) {
-        // 1. 先通过customer_id查找
-        const { data: stripeCustomer } = await supabase
+        // 1. 通过customer_id查找
+        console.log(`[webhook] 步骤1: 通过customer_id查找用户`);
+        const { data: stripeCustomer, error: stripeCustomerError } = await supabase
           .from("stripe_customer")
-          .select("user_id")
+          .select("user_id, created_at")
           .eq("customer_id", customerId)
           .single();
+        
+        console.log(`[webhook] stripe_customer 查找结果:`, {
+          found: !!stripeCustomer,
+          error: stripeCustomerError,
+          customerId,
+          userId: stripeCustomer?.user_id,
+          createdAt: stripeCustomer?.created_at,
+        });
 
         if (stripeCustomer?.user_id) {
           userId = stripeCustomer.user_id;
-          console.log(`[webhook] 通过customer_id找到用户: ${userId}`);
-        }
-        // 2. 如果有客户邮箱，尝试通过邮箱匹配
-        else {
-          const customer = await stripe.customers.retrieve(customerId);
-          if (customer && !customer.deleted && customer.email) {
-            console.log(`[webhook] 尝试通过email匹配用户: ${customer.email}`);
+          console.log(`[webhook] 通过customer_id找到用户: ${userId}, 记录创建时间: ${stripeCustomer.created_at}`);
+        } else {
+          console.log(`[webhook] 通过customer_id未找到用户，错误:`, stripeCustomerError);
+          
+          // 2. 如果有客户邮箱，尝试通过邮箱匹配
+          console.log(`[webhook] 步骤2: 尝试通过Stripe API获取客户信息`);
+          try {
+            const customerResponse = await stripe.customers.retrieve(customerId);
+            const customer = customerResponse as Stripe.Customer;
+            console.log(`[webhook] Stripe客户信息:`, {
+              id: customer.id,
+              email: customer.email,
+              name: customer.name,
+              metadata: customer.metadata,
+              deleted: (customerResponse as any).deleted,
+            });
             
-            const { data: user } = await supabase
-              .from("user")
-              .select("id")
-              .eq("email", customer.email)
-              .single();
-            
-            if (user) {
-              userId = user.id;
-              console.log(`[webhook] 通过email找到用户: ${userId}`);
+            if (customer && !(customerResponse as any).deleted && customer.email) {
+              console.log(`[webhook] 步骤3: 通过email匹配用户: ${customer.email}`);
               
-              // 更新客户的metadata以便后续使用
-              try {
-                await stripe.customers.update(customerId, {
-                  metadata: {
-                    ...customer.metadata,
-                    userId: userId,
-                    linkedBy: "email_match",
-                    linkedAt: new Date().toISOString(),
-                  },
-                });
-                console.log(`[webhook] 已更新客户metadata`);
-              } catch (error) {
-                console.error(`[webhook] 更新客户metadata失败`, error);
+              const { data: user, error: userError } = await supabase
+                .from("user")
+                .select("id, email, created_at")
+                .eq("email", customer.email)
+                .single();
+              
+              console.log(`[webhook] 用户查找结果:`, {
+                found: !!user,
+                error: userError,
+                email: customer.email,
+                userId: user?.id,
+                createdAt: user?.created_at,
+              });
+              
+              if (user) {
+                userId = user.id;
+                console.log(`[webhook] 通过email找到用户: ${userId}, 用户创建时间: ${user.created_at}`);
+                
+                // 自动补全 stripe_customer 绑定
+                console.log(`[webhook] 步骤4: 开始创建stripe_customer绑定`);
+                try {
+                  const newRecord = {
+                    id: createId(),
+                    user_id: userId,
+                    customer_id: customerId,
+                    updated_at: new Date().toISOString(),
+                    created_at: new Date().toISOString(),
+                  };
+                  console.log(`[webhook] 准备插入stripe_customer记录:`, newRecord);
+                  
+                  const { data: upsertResult, error: upsertError } = await supabase
+                    .from("stripe_customer")
+                    .upsert(newRecord, { onConflict: "user_id" });
+                  
+                  console.log(`[webhook] stripe_customer upsert结果:`, {
+                    success: !upsertError,
+                    data: upsertResult,
+                    error: upsertError,
+                  });
+
+                  if (upsertError) {
+                    console.error(`[webhook] stripe_customer绑定失败:`, {
+                      error: upsertError,
+                      errorCode: upsertError.code,
+                      errorMessage: upsertError.message,
+                      details: upsertError.details,
+                    });
+                  }
+                } catch (err) {
+                  console.error(`[webhook] 创建stripe_customer绑定失败:`, err);
+                }
+              } else {
+                console.log(`[webhook] 通过email未找到用户: ${customer.email}, 错误:`, userError);
               }
+            } else {
+              console.log(`[webhook] Stripe客户无效或已删除:`, {
+                customerId,
+                isDeleted: (customerResponse as any).deleted,
+                hasEmail: !!customer?.email,
+              });
             }
+          } catch (stripeError) {
+            console.error(`[webhook] 获取Stripe客户信息失败:`, stripeError);
           }
         }
+      } else {
+        console.log(`[webhook] PaymentIntent中没有customer_id`);
       }
+    } else {
+      console.log(`[webhook] 已从metadata中获取到userId: ${userId}`);
     }
 
     if (!userId) {
-      console.error(`[webhook] 无法找到用户ID，记录失败支付: ${paymentIntent.id}`);
+      console.error(`[webhook] 所有方法都无法找到用户ID:`, {
+        paymentIntentId: paymentIntent.id,
+        customerId: paymentIntent.customer,
+        metadata,
+      });
       await recordFailedPayment(paymentIntent.id, rechargeId, new Error("无法找到用户ID"));
       throw new Error("无法找到用户ID");
     }
@@ -184,8 +296,10 @@ async function handlePaymentIntentSucceeded(event: Stripe.Event) {
 
     try {
       // 优先使用 RPC 函数处理支付成功
+      console.log(`[webhook] 调用 processPaymentWithRPC`);
       const result = await processPaymentWithRPC(paymentIntent.id, rechargeId);
-      
+      console.log(`[webhook] processPaymentWithRPC 返回:`, result);
+
       if (result.success) {
         console.log(`[webhook] RPC 函数处理成功:`, {
           rechargeId,
@@ -213,10 +327,8 @@ async function handlePaymentIntentSucceeded(event: Stripe.Event) {
 
     // 备用方法：直接使用服务层函数
     try {
-      console.log(`[webhook] 尝试使用备用方法处理支付: ${rechargeId}`);
-      
+      console.log(`[webhook] 尝试使用备用方法 handleCreditRechargeWithTransaction: ${rechargeId}`);
       const result = await handleCreditRechargeWithTransaction(rechargeId, paymentIntent.id);
-      
       console.log(`[webhook] 备用方法处理成功:`, {
         rechargeId,
         paymentIntentId: paymentIntent.id,
@@ -236,10 +348,8 @@ async function handlePaymentIntentSucceeded(event: Stripe.Event) {
       };
     } catch (fallbackError) {
       console.error(`[webhook] 备用方法也失败: ${rechargeId}`, fallbackError);
-      
       // 记录失败的支付以便后续手动处理
       await recordFailedPayment(paymentIntent.id, rechargeId, fallbackError);
-      
       throw new Error(`所有处理方法都失败了: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`);
     }
   }
@@ -356,11 +466,11 @@ async function handleSubscriptionChange(event: Stripe.Event) {
     // 从元数据中获取用户ID
     let userId = customer?.metadata?.userId;
     
-    // 如果没有从客户元数据获取到userId，尝试从数据库查找
+    // 如果没有从客户元数据获取到userId，尝试多种方式查找
     if (!userId) {
-      console.log(`[webhook] 尝试从数据库查找用户关联`);
+      console.log(`[webhook] 尝试多种方式查找用户关联`);
       
-      // 1. 先通过customer_id查找
+      // 1. 通过customer_id查找
       const { data: stripeCustomer } = await supabase
         .from("stripe_customer")
         .select("user_id")
@@ -370,6 +480,23 @@ async function handleSubscriptionChange(event: Stripe.Event) {
       if (stripeCustomer?.user_id) {
         userId = stripeCustomer.user_id;
         console.log(`[webhook] 通过customer_id找到用户: ${userId}`);
+        
+        // 更新客户元数据
+        if (customer && !customer.deleted) {
+          try {
+            await stripe.customers.update(customerId, {
+              metadata: {
+                ...customer.metadata,
+                userId: stripeCustomer.user_id,
+                linkedBy: "customer_id_match",
+                linkedAt: new Date().toISOString(),
+              },
+            });
+            console.log(`[webhook] 已更新客户metadata`);
+          } catch (error) {
+            console.error(`[webhook] 更新客户metadata失败`, error);
+          }
+        }
       }
       // 2. 如果有客户邮箱，尝试通过邮箱匹配
       else if (customer?.email) {
@@ -385,60 +512,143 @@ async function handleSubscriptionChange(event: Stripe.Event) {
           userId = user.id;
           console.log(`[webhook] 通过email找到用户: ${userId}`);
           
-          // 更新客户的metadata以便后续使用
-          if (customer && !customer.deleted && userId) {
-            try {
+          // 自动补全 stripe_customer 绑定
+          try {
+            await supabase.from("stripe_customer").upsert({
+              id: createId(),
+              user_id: userId,
+              customer_id: customerId,
+              updated_at: new Date().toISOString(),
+              created_at: new Date().toISOString(),
+            }, { onConflict: "user_id" });
+            console.log(`[webhook] 已自动补全 stripe_customer 绑定: user_id=${userId}, customer_id=${customerId}`);
+            
+            // 更新客户元数据
+            if (customer && !customer.deleted) {
               await stripe.customers.update(customerId, {
                 metadata: {
                   ...customer.metadata,
-                  userId: userId,
+                  userId: user.id,
                   linkedBy: "email_match",
                   linkedAt: new Date().toISOString(),
                 },
               });
               console.log(`[webhook] 已更新客户metadata`);
-            } catch (error) {
-              console.error(`[webhook] 更新客户metadata失败`, error);
+            }
+          } catch (err: any) {
+            if (err.code === '23505') {
+              const { error: updateError } = await supabase
+                .from("stripe_customer")
+                .update({
+                  customer_id: customerId,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq("user_id", userId);
+              
+              if (updateError) {
+                console.error(`[webhook] 更新stripe_customer记录失败:`, updateError);
+                throw updateError;
+              }
+            } else {
+              console.error(`[webhook] 自动补全 stripe_customer 绑定失败`, err);
+              throw err;
             }
           }
+        }
+      }
+      
+      // 3. 尝试从订阅元数据中获取
+      if (!userId && subscription.metadata?.userId) {
+        console.log(`[webhook] 步骤5: 从订阅metadata中获取用户ID: ${subscription.metadata.userId}`);
+        
+        // 验证用户ID是否有效
+        const { data: user, error: userError } = await supabase
+          .from("user")
+          .select("id, email, created_at")
+          .eq("id", subscription.metadata.userId)
+          .single();
+          
+        console.log(`[webhook] 验证订阅metadata中的用户ID结果:`, {
+          found: !!user,
+          error: userError,
+          userId: subscription.metadata.userId,
+          userEmail: user?.email,
+          createdAt: user?.created_at,
+        });
+
+        if (user) {
+          userId = user.id;
+          console.log(`[webhook] 验证订阅metadata中的用户ID有效: ${userId}`);
+        } else {
+          console.warn(`[webhook] 订阅metadata中的用户ID无效: ${subscription.metadata.userId}, 错误:`, userError);
         }
       }
     }
 
     if (!userId) {
-      console.warn(`[webhook] 无法找到用户ID，记录为待处理订阅: ${subscription.id}`);
+      console.warn(`[webhook] 所有方法都无法找到用户ID，记录为待处理订阅: ${subscription.id}`);
       
       // 记录待处理订阅到数据库
-      await supabase.rpc("insert_pending_subscription", {
-        p_subscription_id: subscription.id,
-        p_customer_id: customerId,
-        p_product_id: productId,
-        p_status: subscription.status
-      });
-      
-      return { handled: false, reason: "user_not_found" };
+      const pendingSubscription = {
+        id: createId(),
+        user_id: `pending_${customerId}`, // 使用特殊的用户ID格式标记待处理
+        customer_id: customerId,
+        subscription_id: subscription.id,
+        product_id: productId,
+        status: subscription.status,
+        metadata: {
+          customerEmail: customer?.email || null,
+          customerName: customer?.name || null,
+          customerMetadata: customer?.metadata || null,
+          subscriptionMetadata: subscription.metadata || null,
+          pendingReason: "user_not_found",
+          createdAt: new Date().toISOString(),
+        },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      console.log(`[webhook] 准备插入待处理订阅记录:`, pendingSubscription);
+
+      const { error: insertError } = await supabase
+        .from("stripe_subscription")
+        .insert(pendingSubscription);
+
+      if (insertError) {
+        console.error(`[webhook] 记录待处理订阅失败:`, {
+          error: insertError,
+          errorCode: insertError.code,
+          errorMessage: insertError.message,
+          details: insertError.details,
+        });
+        throw insertError;
+      }
+
     }
 
     // 同步订阅状态到数据库
-    await supabase.rpc("sync_subscription", {
-      p_subscription_id: subscription.id,
-      p_user_id: userId,
-      p_customer_id: customerId,
-      p_product_id: productId,
-      p_status: subscription.status
-    });
+    const { error: syncError } = await supabase
+      .from("stripe_subscription")
+      .upsert({
+        id: subscription.id,
+        user_id: userId,
+        customer_id: customerId,
+        subscription_id: subscription.id,
+        product_id: productId,
+        status: subscription.status,
+        metadata: {
+          linkedBy: customer?.metadata?.linkedBy || null,
+          linkedAt: customer?.metadata?.linkedAt || new Date().toISOString(),
+        },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "subscription_id" });
 
-    // 如果是新创建的订阅，给用户奖励积分
-    if (event.type === "customer.subscription.created" && subscription.status === "active") {
-      await handleSubscriptionBonusCredits(subscription, userId);
+    if (syncError) {
+      console.error(`[webhook] 同步订阅状态失败:`, syncError);
+      throw syncError;
     }
 
-    return {
-      handled: true,
-      type: "subscription_change",
-      subscriptionId: subscription.id,
-      eventType: event.type,
-    };
   } catch (error) {
     console.error(`[webhook] 订阅处理失败: ${subscription.id}`, error);
     throw error;

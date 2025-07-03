@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "~/lib/stripe";
 import { createClient } from "~/lib/supabase/server";
-import { addBonusCredits } from "~/api/credits/credit-service";
+import { addBonusCreditsWithTransaction } from "~/api/credits/credit-service";
+import type { Stripe } from "stripe";
+
+interface PendingSubscriptionRequest {
+  subscriptionId: string;
+  userId: string;
+  action: 'link' | 'cancel';
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,7 +21,7 @@ export async function GET(request: NextRequest) {
       .from('stripe_subscription')
       .select('*')
       .like('user_id', 'pending_%')
-      .order('created_at');
+      .order('created_at', { ascending: false });
 
     if (error) {
       throw new Error(`查询订阅失败: ${error.message}`);
@@ -27,10 +34,10 @@ export async function GET(request: NextRequest) {
       (pendingSubscriptions || []).map(async (sub: any) => {
         try {
           // 获取Stripe订阅详情
-          const stripeSubscription = await stripe.subscriptions.retrieve(sub.subscription_id);
+          const subscription = await stripe.subscriptions.retrieve(sub.subscription_id) as Stripe.Subscription;
           
           // 获取客户信息
-          const customer = await stripe.customers.retrieve(stripeSubscription.customer as string);
+          const customer = await stripe.customers.retrieve(subscription.customer as string);
           
           return {
             id: sub.id,
@@ -38,16 +45,17 @@ export async function GET(request: NextRequest) {
             customerId: sub.customer_id,
             status: sub.status,
             createdAt: sub.created_at,
+            metadata: sub.metadata,
             stripeSubscription: {
-              id: stripeSubscription.id,
-              status: stripeSubscription.status,
-              current_period_start: (stripeSubscription as any).current_period_start,
-              current_period_end: (stripeSubscription as any).current_period_end,
-              items: stripeSubscription.items.data.map(item => ({
+              id: subscription.id,
+              status: subscription.status,
+              startDate: subscription.start_date ? new Date(subscription.start_date * 1000).toISOString() : null,
+              endDate: subscription.ended_at ? new Date(subscription.ended_at * 1000).toISOString() : null,
+              items: subscription.items.data.map(item => ({
                 id: item.id,
-                price: {
+                price: item.price && {
                   id: item.price.id,
-                  unit_amount: (item.price as any).unit_amount,
+                  unit_amount: item.price.unit_amount,
                   currency: item.price.currency,
                 },
               })),
@@ -67,6 +75,7 @@ export async function GET(request: NextRequest) {
             customerId: sub.customer_id,
             status: sub.status,
             createdAt: sub.created_at,
+            metadata: sub.metadata,
             error: "获取详情失败",
           };
         }
@@ -80,13 +89,9 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error("[admin] 查询待处理订阅失败", error);
-    
+    console.error("[admin] 获取待处理订阅失败:", error);
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "查询失败",
-        success: false,
-      },
+      { error: error instanceof Error ? error.message : "获取待处理订阅失败", success: false },
       { status: 500 }
     );
   }
@@ -94,173 +99,181 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { action, subscriptionId, userId, customerId } = await request.json() as {
-      action: string;
-      subscriptionId: string;
-      userId: string;
-      customerId: string;
-    };
+    const { subscriptionId, userId, action } = await request.json() as PendingSubscriptionRequest;
+    
+    if (!subscriptionId || !userId || !action) {
+      return NextResponse.json(
+        { error: "缺少必要参数", success: false },
+        { status: 400 }
+      );
+    }
 
-    if (action === "link-subscription") {
-      // 手动关联订阅到用户
-      if (!subscriptionId || !userId) {
-        return NextResponse.json(
-          { error: "subscriptionId 和 userId 都是必需的", success: false },
-          { status: 400 }
-        );
-      }
+    console.log(`[admin] 处理待处理订阅: ${subscriptionId}, 用户: ${userId}, 操作: ${action}`);
 
-      console.log(`[admin] 手动关联订阅 ${subscriptionId} 到用户 ${userId}`);
+    const supabase = await createClient();
 
-      const supabase = await createClient();
+    // 获取订阅信息
+    const { data: subscription, error: subError } = await supabase
+      .from('stripe_subscription')
+      .select('*')
+      .eq('subscription_id', subscriptionId)
+      .single();
 
-      // 验证用户是否存在
-      const { data: user, error: userError } = await supabase
-        .from('user')
-        .select('*')
-        .eq('id', userId)
-        .single();
+    if (subError || !subscription) {
+      throw new Error(`获取订阅信息失败: ${subError?.message || '未找到订阅'}`);
+    }
 
-      if (userError || !user) {
-        return NextResponse.json(
-          { error: "用户不存在", success: false },
-          { status: 400 }
-        );
-      }
+    // 验证用户ID
+    const { data: user, error: userError } = await supabase
+      .from('user')
+      .select('id, email')
+      .eq('id', userId)
+      .single();
 
-      // 查找待处理的订阅
-      const { data: pendingSubscription, error: subscriptionError } = await supabase
-        .from('stripe_subscription')
-        .select('*')
-        .eq('subscription_id', subscriptionId)
-        .single();
+    if (userError || !user) {
+      throw new Error(`验证用户失败: ${userError?.message || '未找到用户'}`);
+    }
 
-      if (subscriptionError || !pendingSubscription) {
-        return NextResponse.json(
-          { error: "订阅不存在", success: false },
-          { status: 400 }
-        );
-      }
+    switch (action) {
+      case 'link': {
+        // 1. 更新订阅记录
+        const { error: updateError } = await supabase
+          .from('stripe_subscription')
+          .update({
+            user_id: userId,
+            updated_at: new Date().toISOString(),
+            metadata: {
+              ...subscription.metadata,
+              linkedBy: 'admin',
+              linkedAt: new Date().toISOString(),
+            },
+          })
+          .eq('subscription_id', subscriptionId);
 
-      // 更新订阅记录
-      const { error: updateError } = await supabase
-        .from('stripe_subscription')
-        .update({
-          user_id: userId,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('subscription_id', subscriptionId);
+        if (updateError) {
+          throw new Error(`更新订阅失败: ${updateError.message}`);
+        }
 
-      if (updateError) {
-        throw new Error(`更新订阅失败: ${updateError.message}`);
-      }
+        // 2. 更新或创建 stripe_customer 记录
+        const { error: customerError } = await supabase
+          .from('stripe_customer')
+          .upsert({
+            id: subscription.id,
+            user_id: userId,
+            customer_id: subscription.customer_id,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'user_id' });
 
-      // 如果提供了customerId，也更新Stripe客户的metadata
-      if (customerId) {
+        if (customerError) {
+          throw new Error(`更新客户关联失败: ${customerError.message}`);
+        }
+
+        // 3. 更新 Stripe 客户元数据
         try {
-          await stripe.customers.update(customerId, {
+          await stripe.customers.update(subscription.customer_id, {
             metadata: {
               userId: userId,
-              linkedBy: "admin",
+              linkedBy: 'admin',
               linkedAt: new Date().toISOString(),
             },
           });
-          console.log(`[admin] 已更新客户 ${customerId} 的metadata`);
         } catch (error) {
-          console.warn(`[admin] 更新客户metadata失败:`, error);
+          console.error(`[admin] 更新Stripe客户元数据失败:`, error);
+          // 不中断流程
         }
-      }
 
-      // 如果订阅是活跃状态，补发积分
-      const stripeSubscription = await stripe.subscriptions.retrieve(subscriptionId);
-      if (stripeSubscription.status === "active") {
-        try {
-          // 计算应该给的积分
-          const amount = (stripeSubscription.items.data[0]?.price as any)?.unit_amount;
-          let creditsToAdd = 120; // 默认月付积分
-          let description = "补发订阅积分";
+        // 4. 如果是活跃订阅，添加奖励积分
+        if (subscription.status === 'active') {
+          try {
+            // 根据订阅类型给予奖励积分
+            const stripeSubscription = await stripe.subscriptions.retrieve(subscriptionId);
+            const priceAmount = stripeSubscription.items.data[0]?.price?.unit_amount;
+            const amount = typeof priceAmount === 'number' ? priceAmount : null;
+            let creditsToAdd = 120; // 默认月付积分
+            let description = "订阅成功赠送积分";
 
-          if (amount === 1690) {
-            creditsToAdd = 120;
-            description = "补发月付订阅积分";
-          } else if (amount === 990) {
-            creditsToAdd = 1800;
-            description = "补发年付订阅积分";
-          }
-
-          console.log(`[admin] 为用户 ${userId} 补发 ${creditsToAdd} 积分`);
-
-          const result = await addBonusCredits(
-            userId,
-            creditsToAdd,
-            description,
-            {
-              subscriptionId: subscriptionId,
-              customerId: customerId,
-              type: "admin_backfill",
-              linkedBy: "admin",
-              originalAmount: amount,
+            if (amount === 1690) {
+              creditsToAdd = 120;
+              description = "月付订阅成功赠送120积分";
+            } else if (amount === 990) {
+              creditsToAdd = 1800;
+              description = "年付订阅成功赠送1800积分";
             }
-          );
 
-          console.log(`[admin] 积分补发成功`, {
-            userId,
-            creditsAdded: creditsToAdd,
-            newBalance: result.balance,
-            transactionId: result.transactionId,
-          });
-
-          return NextResponse.json({
-            success: true,
-            message: `订阅已关联到用户 ${userId}，并补发了 ${creditsToAdd} 积分`,
-            data: {
-              subscriptionId,
-              userId,
-              creditsAdded: creditsToAdd,
-              newBalance: result.balance,
-              transactionId: result.transactionId,
-            },
-          });
-
-        } catch (error) {
-          console.error(`[admin] 补发积分失败:`, error);
-          
-          return NextResponse.json({
-            success: true,
-            message: `订阅已关联到用户 ${userId}，但积分补发失败: ${error instanceof Error ? error.message : '未知错误'}`,
-            data: {
-              subscriptionId,
-              userId,
-              creditError: error instanceof Error ? error.message : '未知错误',
-            },
-          });
+            await addBonusCreditsWithTransaction(userId, creditsToAdd, description, {
+              subscriptionId: subscriptionId,
+              bonusType: "subscription_welcome",
+              amount: amount,
+              addedBy: "admin",
+            });
+          } catch (error) {
+            console.error(`[admin] 添加订阅奖励积分失败:`, error);
+            // 不中断流程
+          }
         }
-      } else {
+
         return NextResponse.json({
           success: true,
-          message: `订阅已关联到用户 ${userId}，但订阅状态不是活跃状态 (${stripeSubscription.status})，未补发积分`,
-          data: {
-            subscriptionId,
-            userId,
-            subscriptionStatus: stripeSubscription.status,
+          message: "订阅已成功关联到用户",
+          subscription: {
+            id: subscription.id,
+            subscriptionId: subscription.subscription_id,
+            userId: userId,
+            status: subscription.status,
           },
         });
       }
+
+      case 'cancel': {
+        // 取消订阅
+        try {
+          await stripe.subscriptions.cancel(subscriptionId);
+        } catch (error) {
+          console.error(`[admin] 取消Stripe订阅失败:`, error);
+          // 继续处理本地记录
+        }
+
+        // 更新本地记录
+        const { error: updateError } = await supabase
+          .from('stripe_subscription')
+          .update({
+            status: 'cancelled',
+            updated_at: new Date().toISOString(),
+            metadata: {
+              ...subscription.metadata,
+              cancelledBy: 'admin',
+              cancelledAt: new Date().toISOString(),
+            },
+          })
+          .eq('subscription_id', subscriptionId);
+
+        if (updateError) {
+          throw new Error(`更新订阅状态失败: ${updateError.message}`);
+        }
+
+        return NextResponse.json({
+          success: true,
+          message: "订阅已取消",
+          subscription: {
+            id: subscription.id,
+            subscriptionId: subscription.subscription_id,
+            status: 'cancelled',
+          },
+        });
+      }
+
+      default:
+        return NextResponse.json(
+          { error: "不支持的操作", success: false },
+          { status: 400 }
+        );
     }
 
-    return NextResponse.json(
-      { error: "不支持的操作", success: false },
-      { status: 400 }
-    );
-
   } catch (error) {
-    console.error("[admin] 操作失败:", error);
-    
+    console.error("[admin] 处理待处理订阅失败:", error);
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "操作失败",
-        success: false,
-      },
+      { error: error instanceof Error ? error.message : "处理待处理订阅失败", success: false },
       { status: 500 }
     );
   }
