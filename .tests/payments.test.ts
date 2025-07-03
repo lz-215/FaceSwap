@@ -1,5 +1,4 @@
 import { expect, test, describe, beforeAll, afterAll } from "bun:test";
-import { eq } from "drizzle-orm";
 
 const mockCustomerId = "mock-customer-id";
 const mockUserId = "test-user-id";

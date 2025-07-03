@@ -1,1 +1,0 @@
-ALTER TABLE "credit_recharge" ADD COLUMN "metadata" text;

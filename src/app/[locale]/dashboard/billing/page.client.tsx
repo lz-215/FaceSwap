@@ -5,7 +5,7 @@ import type { User } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import type { PolarSubscription } from "~/db/schema/payments/types";
+import type { PolarSubscription } from "~/lib/database-types";
 
 import { PaymentForm } from "~/components/payments/PaymentForm";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";

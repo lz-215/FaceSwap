@@ -60,8 +60,21 @@ export async function POST(request: NextRequest) {
       customer = await stripe.customers.create({
         email: email || "test@example.com",
         name: name || "测试用户",
+        metadata: {
+          userId: customerId || "", // 确保 userId 写入 metadata
+        },
       });
       console.log(`创建了新客户: ${customer.id}`);
+
+      // 新增：写入 stripe_customer 表，保证 webhook 能查到
+      const supabase = await import("~/lib/supabase/server").then(m => m.createClient());
+      await supabase.from("stripe_customer").insert({
+        id: customer.id, // 这里建议用 customer.id 作为主键
+        user_id: customerId || "", // 这里用 userId
+        customer_id: customer.id,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
     }
 
     // 创建订阅

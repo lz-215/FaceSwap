@@ -114,11 +114,70 @@ async function handlePaymentIntentSucceeded(event: Stripe.Event) {
 
   // 检查是否是积分充值
   if (metadata && metadata.type === "credit_recharge") {
-    const { rechargeId, userId, credits } = metadata;
+    let { rechargeId, userId, credits } = metadata;
     
     if (!rechargeId) {
       console.error(`[webhook] 积分充值支付缺少 rechargeId: ${paymentIntent.id}`);
       throw new Error("积分充值支付缺少 rechargeId");
+    }
+
+    // 如果没有userId，尝试通过其他方式查找
+    if (!userId) {
+      const supabase = await createClient();
+      const customerId = paymentIntent.customer as string;
+
+      if (customerId) {
+        // 1. 先通过customer_id查找
+        const { data: stripeCustomer } = await supabase
+          .from("stripe_customer")
+          .select("user_id")
+          .eq("customer_id", customerId)
+          .single();
+
+        if (stripeCustomer?.user_id) {
+          userId = stripeCustomer.user_id;
+          console.log(`[webhook] 通过customer_id找到用户: ${userId}`);
+        }
+        // 2. 如果有客户邮箱，尝试通过邮箱匹配
+        else {
+          const customer = await stripe.customers.retrieve(customerId);
+          if (customer && !customer.deleted && customer.email) {
+            console.log(`[webhook] 尝试通过email匹配用户: ${customer.email}`);
+            
+            const { data: user } = await supabase
+              .from("user")
+              .select("id")
+              .eq("email", customer.email)
+              .single();
+            
+            if (user) {
+              userId = user.id;
+              console.log(`[webhook] 通过email找到用户: ${userId}`);
+              
+              // 更新客户的metadata以便后续使用
+              try {
+                await stripe.customers.update(customerId, {
+                  metadata: {
+                    ...customer.metadata,
+                    userId: userId,
+                    linkedBy: "email_match",
+                    linkedAt: new Date().toISOString(),
+                  },
+                });
+                console.log(`[webhook] 已更新客户metadata`);
+              } catch (error) {
+                console.error(`[webhook] 更新客户metadata失败`, error);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (!userId) {
+      console.error(`[webhook] 无法找到用户ID，记录失败支付: ${paymentIntent.id}`);
+      await recordFailedPayment(paymentIntent.id, rechargeId, new Error("无法找到用户ID"));
+      throw new Error("无法找到用户ID");
     }
 
     console.log(`[webhook] 开始处理积分充值: 用户=${userId}, 充值ID=${rechargeId}, 积分=${credits}`);
@@ -282,38 +341,67 @@ async function handleSubscriptionChange(event: Stripe.Event) {
     }
 
     // 查找对应的用户
-    const customer = await stripe.customers.retrieve(customerId);
-    if (!customer || customer.deleted) {
-      console.error(`[webhook] 找不到客户 ${customerId}`);
-      throw new Error("找不到客户");
+    let customer;
+    try {
+      customer = await stripe.customers.retrieve(customerId);
+      if (customer.deleted) {
+        console.warn(`[webhook] 客户 ${customerId} 已被删除，尝试从数据库查找关联`);
+        customer = null;
+      }
+    } catch (error) {
+      console.error(`[webhook] 获取客户信息失败: ${customerId}`, error);
+      customer = null;
     }
 
     // 从元数据中获取用户ID
-    let userId = customer.metadata?.userId;
+    let userId = customer?.metadata?.userId;
     
-    // 如果没有userId metadata，尝试通过email匹配用户
-    if (!userId && customer.email) {
-      console.log(`[webhook] 客户没有userId metadata，尝试通过email匹配: ${customer.email}`);
+    // 如果没有从客户元数据获取到userId，尝试从数据库查找
+    if (!userId) {
+      console.log(`[webhook] 尝试从数据库查找用户关联`);
       
-      const { data: user, error } = await supabase
-        .from("user")
-        .select("*")
-        .eq("email", customer.email)
+      // 1. 先通过customer_id查找
+      const { data: stripeCustomer } = await supabase
+        .from("stripe_customer")
+        .select("user_id")
+        .eq("customer_id", customerId)
         .single();
-      
-      if (!error && user) {
-        userId = user.id;
-        console.log(`[webhook] 通过email找到用户: ${userId}`);
+
+      if (stripeCustomer?.user_id) {
+        userId = stripeCustomer.user_id;
+        console.log(`[webhook] 通过customer_id找到用户: ${userId}`);
+      }
+      // 2. 如果有客户邮箱，尝试通过邮箱匹配
+      else if (customer?.email) {
+        console.log(`[webhook] 尝试通过email匹配用户: ${customer.email}`);
         
-        // 更新客户的metadata以便后续使用
-        await stripe.customers.update(customerId, {
-          metadata: {
-            ...customer.metadata,
-            userId: userId,
-            linkedBy: "email_match",
-            linkedAt: new Date().toISOString(),
-          },
-        });
+        const { data: user } = await supabase
+          .from("user")
+          .select("id")
+          .eq("email", customer.email)
+          .single();
+        
+        if (user) {
+          userId = user.id;
+          console.log(`[webhook] 通过email找到用户: ${userId}`);
+          
+          // 更新客户的metadata以便后续使用
+          if (customer && !customer.deleted && userId) {
+            try {
+              await stripe.customers.update(customerId, {
+                metadata: {
+                  ...customer.metadata,
+                  userId: userId,
+                  linkedBy: "email_match",
+                  linkedAt: new Date().toISOString(),
+                },
+              });
+              console.log(`[webhook] 已更新客户metadata`);
+            } catch (error) {
+              console.error(`[webhook] 更新客户metadata失败`, error);
+            }
+          }
+        }
       }
     }
 
@@ -321,38 +409,27 @@ async function handleSubscriptionChange(event: Stripe.Event) {
       console.warn(`[webhook] 无法找到用户ID，记录为待处理订阅: ${subscription.id}`);
       
       // 记录待处理订阅到数据库
-      await supabase
-        .from("stripe_subscription")
-        .upsert({
-          id: `pending_${subscription.id}`,
-          user_id: `pending_${customerId}`,
-          customer_id: customerId,
-          subscription_id: subscription.id,
-          product_id: productId,
-          status: subscription.status,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
+      await supabase.rpc("insert_pending_subscription", {
+        p_subscription_id: subscription.id,
+        p_customer_id: customerId,
+        p_product_id: productId,
+        p_status: subscription.status
+      });
       
       return { handled: false, reason: "user_not_found" };
     }
 
     // 同步订阅状态到数据库
-    await supabase
-      .from("stripe_subscription")
-      .upsert({
-        id: subscription.id,
-        user_id: userId,
-        customer_id: customerId,
-        subscription_id: subscription.id,
-        product_id: productId,
-        status: subscription.status,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      });
+    await supabase.rpc("sync_subscription", {
+      p_subscription_id: subscription.id,
+      p_user_id: userId,
+      p_customer_id: customerId,
+      p_product_id: productId,
+      p_status: subscription.status
+    });
 
     // 如果是新创建的订阅，给用户奖励积分
-    if (event.type === "customer.subscription.created") {
+    if (event.type === "customer.subscription.created" && subscription.status === "active") {
       await handleSubscriptionBonusCredits(subscription, userId);
     }
 
@@ -371,21 +448,45 @@ async function handleSubscriptionChange(event: Stripe.Event) {
 async function handleSubscriptionBonusCredits(subscription: Stripe.Subscription, userId: string) {
   try {
     // 根据订阅类型给予奖励积分
-    const bonusCredits = 100; // 示例：订阅奖励100积分
-    const reason = "订阅成功赠送积分";
+    const priceAmount = subscription.items.data[0]?.price?.unit_amount;
+    const amount = typeof priceAmount === 'number' ? priceAmount : null;
+    let creditsToAdd = 120; // 默认月付积分
+    let description = "订阅成功赠送积分";
 
-    console.log(`[webhook] 为订阅用户 ${userId} 奖励 ${bonusCredits} 积分`);
+    if (amount === 1690) {
+      creditsToAdd = 120;
+      description = "月付订阅成功赠送120积分";
+    } else if (amount === 990) {
+      creditsToAdd = 1800;
+      description = "年付订阅成功赠送1800积分";
+    }
+
+    console.log(`[webhook] 为订阅用户 ${userId} 奖励 ${creditsToAdd} 积分`);
 
     try {
-      await addBonusCreditsWithTransaction(userId, bonusCredits, reason, {
+      await addBonusCreditsWithTransaction(userId, creditsToAdd, description, {
         subscriptionId: subscription.id,
         bonusType: "subscription_welcome",
+        amount: amount,
       });
       
       console.log(`[webhook] 订阅奖励积分处理成功: ${userId}`);
     } catch (error) {
       console.error(`[webhook] 订阅奖励积分处理失败: ${userId}`, error);
-      // 不抛出错误，因为订阅本身已经成功
+      // 记录失败的积分奖励到待处理表
+      const supabase = await createClient();
+      await supabase.rpc("insert_pending_bonus_credits", {
+        p_user_id: userId,
+        p_amount: creditsToAdd,
+        p_description: description,
+        p_metadata: {
+          subscriptionId: subscription.id,
+          bonusType: "subscription_welcome",
+          amount: amount,
+          failedAt: new Date().toISOString(),
+          error: error instanceof Error ? error.message : "Unknown error"
+        }
+      });
     }
   } catch (error) {
     console.error(`[webhook] 订阅奖励积分处理时出错: ${userId}`, error);

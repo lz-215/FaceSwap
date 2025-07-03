@@ -1,6 +1,13 @@
 import { createId } from "@paralleldrive/cuid2";
 import { createClient } from "~/lib/supabase/server";
 import { stripe } from "~/lib/stripe";
+import type { 
+  UserCreditBalance, 
+  CreditRecharge, 
+  CreditTransaction,
+  CreditConsumptionConfig,
+  TableNames 
+} from "~/lib/database-types";
 
 /**
  * 积分服务 - 使用 Supabase HTTP API

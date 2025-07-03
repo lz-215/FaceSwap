@@ -30,7 +30,7 @@ const PLANS = [
     price: 16.9,
     credits: 120,
     priceSuffix: { zh: "/月", en: "/month" },
-    stripeUrl: "https://buy.stripe.com/test_7sYaEZd3SgKU1nGeUi43S02",
+    stripeUrl: "https://buy.stripe.com/test_bJebJ30h6gKU6I04fE43S04",
     highlight: false,
     badge: null,
   },
@@ -43,7 +43,7 @@ const PLANS = [
     price: 118.8,
     credits: 1800,
     priceSuffix: { zh: "/年", en: "/year" },
-    stripeUrl: "https://buy.stripe.com/test_bJe3cxe7W3Y86I08vU43S03",
+    stripeUrl: "https://buy.stripe.com/test_6oU14pfc07ak0jCbI643S05",
     highlight: true,
     badge: {
       zh: "最划算",

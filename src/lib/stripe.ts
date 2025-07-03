@@ -15,7 +15,7 @@ function getStripe(): Stripe {
   }
 
   _stripe = new Stripe(stripeSecretKey, {
-    apiVersion: "2025-05-28.basil",
+    apiVersion: "2025-06-30.basil",
     typescript: true,
   });
 
