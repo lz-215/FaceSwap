@@ -346,11 +346,12 @@ export async function POST(request: NextRequest) {
       resultSize: faceppData.result.length,
     });
 
-    // 返回成功结果
+    // 返回成功结果，新增 balanceAfter 字段
     return NextResponse.json({ 
       result: faceppData.result,
       success: true,
-      processingTime
+      processingTime,
+      balanceAfter: creditResult.balanceAfter
     });
 
   } catch (err) {

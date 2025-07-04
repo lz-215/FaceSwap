@@ -4,10 +4,7 @@ import type Stripe from "stripe";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 
-import { 
-  handleCreditRechargeWithTransaction,
-  addBonusCreditsWithTransaction 
-} from "~/api/credits/credit-service";
+import { addBonusCreditsWithTransaction } from "~/api/credits/credit-service";
 import { stripe } from "~/lib/stripe";
 import { createClient } from "~/lib/supabase/server";
 
@@ -156,25 +153,10 @@ async function handlePaymentIntentSucceeded(event: Stripe.Event) {
     try {
       console.log(`[webhook] 尝试使用备用方法处理支付: ${rechargeId}`);
       
-      const result = await handleCreditRechargeWithTransaction(rechargeId, paymentIntent.id);
+      // const result = await handleCreditRechargeWithTransaction(rechargeId, paymentIntent.id);
       
-      console.log(`[webhook] 备用方法处理成功:`, {
-        rechargeId,
-        paymentIntentId: paymentIntent.id,
-        userId,
-        credits,
-        balance: result.balance,
-      });
-
-      return {
-        handled: true,
-        type: "credit_recharge",
-        method: "fallback",
-        rechargeId,
-        success: true,
-        duplicate: result.duplicate,
-        balance: result.balance,
-      };
+      // 由于备用方法已移除，直接抛出错误或返回失败结果
+      throw new Error("备用方法 handleCreditRechargeWithTransaction 未实现，无法处理该支付");
     } catch (fallbackError) {
       console.error(`[webhook] 备用方法也失败: ${rechargeId}`, fallbackError);
       

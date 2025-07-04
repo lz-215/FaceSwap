@@ -19,22 +19,41 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "未授权" }, { status: 401 });
     }
 
+    // 通过 user.id 查询 user 表，获取 customer_id、email、name
+    const { data: userInfo, error: userInfoError } = await supabase
+      .from("user")
+      .select("id, customer_id, email, name")
+      .eq("id", user.id)
+      .single();
+
+    if (userInfoError || !userInfo) {
+      return NextResponse.json({ error: "用户信息不存在" }, { status: 400 });
+    }
+
+    let customerId = userInfo.customer_id;
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: userInfo.email,
+        name: userInfo.name,
+        metadata: { userId: user.id },
+      });
+      await supabase
+        .from("user")
+        .update({ customer_id: customer.id, updated_at: new Date().toISOString() })
+        .eq("id", user.id);
+      customerId = customer.id;
+    }
+
     const body = (await request.json()) as CheckoutRequest;
     const { priceId, interval } = body;
 
     if (!priceId) {
       return NextResponse.json({ error: "价格ID是必需的" }, { status: 400 });
     }
-    
-    // 获取客户
-    const customer = await getCustomerByUserId(user.id);
-    if (!customer) {
-      return NextResponse.json({ error: "未找到 Stripe customer，请重新登录或联系支持" }, { status: 400 });
-    }
 
     // 创建结账会话
     const checkoutSession = await stripe.checkout.sessions.create({
-      customer: customer.customer_id,
+      customer: customerId,
       line_items: [
         {
           price: priceId,
@@ -53,7 +72,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ 
       url: checkoutSession.url,
       sessionId: checkoutSession.id,
-      customerId: customer.customer_id
+      customerId: customerId
     });
 
   } catch (error) {

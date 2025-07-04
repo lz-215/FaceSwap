@@ -32,6 +32,7 @@ type FaceSwapResponse = {
   processingTime?: number;
   error?: string;
   details?: string;
+  balanceAfter?: number;
 };
 
 // 常量定义
@@ -71,6 +72,8 @@ export default function FaceSwapPage() {
     isLoading: creditsLoading,
     hasEnoughCredits,
     consumeCredits,
+    setCredits,
+    refreshCredits,
   } = useCreditsV2();
 
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
@@ -263,10 +266,16 @@ export default function FaceSwapPage() {
       if (data.result) {
         setResult(`data:image/jpeg;base64,${data.result}`);
 
-        console.log("✅ Face swap completed successfully:", {
-          historyId: data.historyId,
-          processingTime: data.processingTime,
-        });
+        // 新增：如果后端返回 balanceAfter，直接更新本地积分
+        if (typeof data.balanceAfter === "number") {
+          setCredits((prev) => ({
+            ...prev,
+            balance: data.balanceAfter,
+          }));
+        } else {
+          // 强制刷新一次积分，确保和后端同步
+          await refreshCredits();
+        }
 
         // 换脸成功后消费积分 - 使用完整版
         try {

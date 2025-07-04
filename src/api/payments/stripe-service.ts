@@ -3,7 +3,7 @@ import { createClient } from "~/lib/supabase/server";
 import { stripe } from "~/lib/stripe";
 
 /**
- * 创建新客户
+ * 创建新客户（仅在支付时调用）
  */
 export async function createCustomer(
   userId: string,
@@ -13,21 +13,21 @@ export async function createCustomer(
   try {
     const supabase = await createClient();
 
-    // 先检查是否已存在stripe_customer记录
-    const { data: existingCustomer } = await supabase
-      .from("stripe_customer")
-      .select("*")
-      .eq("user_id", userId)
+    // 先查 user 表是否已有 customer_id
+    const { data: user, error: userError } = await supabase
+      .from("user")
+      .select("customer_id")
+      .eq("id", userId)
       .single();
 
-    // 如果已有记录，验证Stripe客户是否存在
-    if (existingCustomer) {
+    if (user?.customer_id) {
+      // 检查 Stripe 客户是否存在
       try {
-        const customer = await stripe.customers.retrieve(existingCustomer.customer_id);
-        if (!customer.deleted) {
+        const customer = await stripe.customers.retrieve(user.customer_id);
+        if (!(customer as any).deleted) {
           return customer;
         }
-        // 如果客户已被删除，继续创建新客户
+        // Stripe 客户已被删除，继续创建新客户
       } catch (error) {
         console.error("获取Stripe客户失败，将创建新客户:", error);
       }
@@ -48,38 +48,14 @@ export async function createCustomer(
       });
     }
 
-    // 更新或插入stripe_customer记录
-    const { error } = await supabase
-      .from("stripe_customer")
-      .upsert({
-        id: existingCustomer?.id || createId(),
-        user_id: userId,
-        customer_id: customer.id,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }, { 
-        onConflict: "user_id",  // 使用user_id作为冲突检测字段
-      });
-
-    if (error) {
-      console.error("保存客户信息到数据库失败:", error);
-      // 如果是唯一约束冲突，尝试更新现有记录
-      if (error.code === '23505') {  // PostgreSQL unique violation code
-        const { error: updateError } = await supabase
-          .from("stripe_customer")
-          .update({
-            customer_id: customer.id,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("user_id", userId);
-        
-        if (updateError) {
-          console.error("更新客户信息失败:", updateError);
-          throw updateError;
-        }
-      } else {
-        throw error;
-      }
+    // 写入 user 表
+    const { error: updateError } = await supabase
+      .from("user")
+      .update({ customer_id: customer.id, updated_at: new Date().toISOString() })
+      .eq("id", userId);
+    if (updateError) {
+      console.error("保存客户信息到 user 表失败:", updateError);
+      throw updateError;
     }
 
     return customer;
@@ -118,10 +94,31 @@ async function getCheckoutUrl(
   try {
     const supabase = await createClient();
     
-    // 只查找客户 ID，不再自动创建
-    const customer = await getCustomerByUserId(userId);
+    // 获取客户 ID，如果不存在则创建
+    let customer = await getCustomerByUserId(userId);
+
     if (!customer) {
-      throw new Error("未找到 Stripe customer，请联系支持或重新登录。");
+      // 获取用户信息
+      const { data: userInfo } = await supabase
+        .from("user")
+        .select("email, name")
+        .eq("id", userId)
+        .single();
+
+      if (!userInfo || !userInfo.email) {
+        throw new Error("用户信息不存在");
+      }
+
+      await createCustomer(
+        userId,
+        userInfo.email,
+        userInfo.name,
+      );
+      // 重新查数据库，确保user表有customer_id
+      customer = await getCustomerByUserId(userId);
+      if (!customer) {
+        throw new Error("Stripe客户创建失败");
+      }
     }
 
     // 创建结账会话
@@ -151,19 +148,17 @@ async function getCheckoutUrl(
 export async function getCustomerByUserId(userId: string) {
   try {
     const supabase = await createClient();
-    
-    const { data: customer, error } = await supabase
-      .from("stripe_customer")
-      .select("*")
-      .eq("user_id", userId)
+    const { data: user, error } = await supabase
+      .from("user")
+      .select("customer_id")
+      .eq("id", userId)
       .single();
-
     if (error) {
       console.error("获取客户信息失败:", error);
       return null;
     }
-
-    return customer;
+    if (!user?.customer_id) return null;
+    return { customer_id: user.customer_id };
   } catch (error) {
     console.error("获取客户信息失败:", error);
     return null;

@@ -39,65 +39,64 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient();
 
     // 3. 检查是否已有 Stripe 客户
-    const { data: existingCustomer } = await supabase
-      .from("stripe_customer")
-      .select("*")
-      .eq("user_id", user.id)
+    const { data: userRecord } = await supabase
+      .from("user")
+      .select("customer_id, email, name")
+      .eq("id", user.id)
       .single();
 
+    if (!userRecord) {
+      return NextResponse.json({ error: "用户信息不存在", success: false }, { status: 400 });
+    }
+
     let customer: any;
-    
-    // 4. 获取或创建 Stripe 客户
-    if (existingCustomer) {
-      customer = await stripe.customers.retrieve(existingCustomer.customer_id) as any;
-      if (customer.deleted) {
-        // Stripe customer 被删除，重新创建
+    let customerId = userRecord?.customer_id;
+    if (!customerId) {
+      customer = await stripe.customers.create({
+        email: email || userRecord.email,
+        name: name || userRecord.name || userRecord.email,
+        metadata: {
+          userId: user.id,
+          createdFrom: "subscription_api",
+          createdAt: new Date().toISOString(),
+          faceSwap: 'true',
+        },
+      });
+      await supabase
+        .from("user")
+        .update({ customer_id: customer.id, updated_at: new Date().toISOString() })
+        .eq("id", user.id);
+      customerId = customer.id;
+    } else {
+      customer = await stripe.customers.retrieve(customerId);
+      if ((customer as any).deleted) {
         customer = await stripe.customers.create({
-          email: email || user.email,
-          name: name || user.user_metadata?.name || user.email,
-          metadata: { 
+          email: email || userRecord.email,
+          name: name || userRecord.name || userRecord.email,
+          metadata: {
             userId: user.id,
             createdFrom: "subscription_api",
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
+            faceSwap: 'true',
           },
         });
-        await supabase.from("stripe_customer").upsert({
-          id: createId(),
-          user_id: user.id,
-          customer_id: customer.id,
-          updated_at: new Date().toISOString(),
-          created_at: new Date().toISOString(),
-        }, { onConflict: "user_id" });
+        await supabase
+          .from("user")
+          .update({ customer_id: customer.id, updated_at: new Date().toISOString() })
+          .eq("id", user.id);
+        customerId = customer.id;
       } else {
         // 更新现有客户的metadata
-        customer = await stripe.customers.update(existingCustomer.customer_id, {
-          email: email || user.email,
-          name: name || user.user_metadata?.name || user.email,
-          metadata: { 
-            ...customer.metadata,
-            userId: user.id, // 确保userId存在
-            updatedAt: new Date().toISOString()
+        customer = await stripe.customers.update(customerId, {
+          email: email || userRecord.email,
+          name: name || userRecord.name || userRecord.email,
+          metadata: {
+            ...(customer as any).metadata,
+            userId: user.id,
+            updatedAt: new Date().toISOString(),
           },
         });
       }
-    } else {
-      // 创建新客户
-      customer = await stripe.customers.create({
-        email: email || user.email,
-        name: name || user.user_metadata?.name || user.email,
-        metadata: { 
-          userId: user.id,
-          createdFrom: "subscription_api",
-          createdAt: new Date().toISOString()
-        },
-      });
-      await supabase.from("stripe_customer").upsert({
-        id: createId(),
-        user_id: user.id,
-        customer_id: customer.id,
-        updated_at: new Date().toISOString(),
-        created_at: new Date().toISOString(),
-      }, { onConflict: "user_id" });
     }
 
     console.log(`[subscription] 客户信息已更新/创建: ${customer.id}, userId: ${user.id}`);

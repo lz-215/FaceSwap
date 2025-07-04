@@ -23,18 +23,6 @@ interface CreditTransaction {
   createdAt: string;
 }
 
-interface CreditPackage {
-  id: string;
-  name: string;
-  description: string | null;
-  credits: number;
-  price: number;
-  currency: string;
-  isActive: boolean;
-  isPopular: boolean;
-  sortOrder: number;
-}
-
 interface CreditsState {
   balance: number;
   totalRecharged: number;
@@ -213,26 +201,6 @@ export function useCreditsV2() {
     }
   };
 
-  // 获取积分套餐
-  const getCreditPackages = async (): Promise<CreditPackage[]> => {
-    try {
-      const { data, error } = await supabaseClient
-        .from('credit_package')
-        .select('*')
-        .eq('is_active', true)
-        .order('sort_order', { ascending: true });
-
-      if (error) {
-        throw error;
-      }
-
-      return data || [];
-    } catch (error) {
-      console.error('Failed to fetch credit packages:', error);
-      return [];
-    }
-  };
-
   // 检查是否有足够积分
   const hasEnoughCredits = (requiredCredits: number = 1): boolean => {
     return credits.balance >= requiredCredits;
@@ -255,7 +223,6 @@ export function useCreditsV2() {
     consumeCredits,
     rechargeCredits,
     getCreditHistory,
-    getCreditPackages,
     hasEnoughCredits,
   };
 } 

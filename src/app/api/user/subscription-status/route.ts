@@ -11,12 +11,12 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = await createClient();
-    
-    // 获取用户的订阅状态
-    const { data: subscriptions, error } = await supabase
-      .from("stripe_subscription")
-      .select("*")
-      .eq("user_id", user.id);
+    // 直接从 user 表获取订阅状态
+    const { data: userRow, error } = await supabase
+      .from("user")
+      .select("subscription_status")
+      .eq("id", user.id)
+      .single();
 
     if (error) {
       console.error("获取订阅状态失败:", error);
@@ -26,15 +26,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 检查是否有活跃订阅
-    const activeSubscription = subscriptions?.find(
-      (sub: any) => sub.status === "active"
-    );
-
+    const status = userRow?.subscription_status || null;
     return NextResponse.json({
-      hasActiveSubscription: !!activeSubscription,
-      subscription: activeSubscription || null,
-      subscriptions: subscriptions || [],
+      hasActiveSubscription: status === 'active',
+      status,
     });
   } catch (error) {
     console.error("获取订阅状态错误:", error);

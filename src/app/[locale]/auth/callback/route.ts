@@ -76,15 +76,6 @@ export async function GET(request: NextRequest) {
           } catch (creditError) {
             console.error("❌ Auth callback - Credit initialization failed:", creditError);
           }
-
-          // 注册时创建 Stripe customer 并写入本地表
-          try {
-            const { createCustomer } = await import("~/api/payments/stripe-service");
-            await createCustomer(user.id, user.email, userData.name);
-            console.log("✅ Stripe customer created/linked for user:", user.id);
-          } catch (stripeError) {
-            console.error("❌ Stripe customer creation/link error:", stripeError);
-          }
         }
       } catch (dbError) {
         console.error("❌ Auth callback - Database error:", dbError);
