@@ -26,31 +26,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "价格ID是必需的" }, { status: 400 });
     }
     
-    // 获取或创建客户
-    let customer = await getCustomerByUserId(user.id);
-
+    // 获取客户
+    const customer = await getCustomerByUserId(user.id);
     if (!customer) {
-      // 获取用户信息
-      const { data: userInfo } = await supabase
-        .from("user")
-        .select("email, name")
-        .eq("id", user.id)
-        .single();
-
-      if (!userInfo || !userInfo.email) {
-        return NextResponse.json({ error: "用户信息不存在" }, { status: 400 });
-      }
-
-      await createCustomer(
-        user.id,
-        userInfo.email,
-        userInfo.name,
-      );
-      // 重新查数据库，确保stripe_customer表有记录
-      customer = await getCustomerByUserId(user.id);
-      if (!customer) {
-        return NextResponse.json({ error: "Stripe客户创建失败" }, { status: 500 });
-      }
+      return NextResponse.json({ error: "未找到 Stripe customer，请重新登录或联系支持" }, { status: 400 });
     }
 
     // 创建结账会话

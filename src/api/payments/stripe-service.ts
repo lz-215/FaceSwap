@@ -118,34 +118,10 @@ async function getCheckoutUrl(
   try {
     const supabase = await createClient();
     
-    // 获取客户 ID，如果不存在则创建
-    let customer = await getCustomerByUserId(userId);
-
+    // 只查找客户 ID，不再自动创建
+    const customer = await getCustomerByUserId(userId);
     if (!customer) {
-      // 获取用户信息
-      const { data: userInfo } = await supabase
-        .from("user")
-        .select("email, name")
-        .eq("id", userId)
-        .single();
-
-      if (!userInfo || !userInfo.email) {
-        throw new Error("用户信息不存在");
-      }
-
-      const newCustomer = await createCustomer(
-        userId,
-        userInfo.email,
-        userInfo.name,
-      );
-      
-      customer = {
-        id: createId(),
-        user_id: userId,
-        customer_id: newCustomer.id,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
+      throw new Error("未找到 Stripe customer，请联系支持或重新登录。");
     }
 
     // 创建结账会话
