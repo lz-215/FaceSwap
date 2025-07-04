@@ -11,12 +11,7 @@
     "latest": "bun update --latest && bun check",
     "check": "tsc --noEmit && eslint --cache --fix . && biome check --fix --unsafe . && knip",
     "tests": "bun test ./.tests",
-    "start": "next start",
-    "stripe:check": "node scripts/fix-stripe-matching.js check",
-    "stripe:fix": "node scripts/fix-stripe-matching.js fix",
-    "stripe:info": "node scripts/fix-stripe-matching.js info",
-    "stripe:search": "node scripts/fix-stripe-matching.js search",
-    "stripe:manual": "node scripts/fix-stripe-matching.js manual"
+    "start": "next start"
   },
   "dependencies": {
     "@paralleldrive/cuid2": "^2.2.2",

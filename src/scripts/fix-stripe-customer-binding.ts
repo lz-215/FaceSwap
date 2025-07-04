@@ -23,6 +23,7 @@ async function fixStripeCustomerBinding() {
         .select("id")
         .eq("email", customer.email)
         .single();
+      console.log('[db:user] select', { email: customer.email }, { data: user, error: userError });
       if (userError || !user) {
         console.log(`[跳过] Stripe customer ${customer.id} 邮箱 ${customer.email} 未找到本地用户`);
         continue;
@@ -33,6 +34,7 @@ async function fixStripeCustomerBinding() {
         .select("id")
         .eq("user_id", user.id)
         .single();
+      console.log('[db:stripe_customer] select', { userId: user.id }, { data: binding, error: bindingError });
       if (bindingError || !binding) {
         // 补全绑定
         const { error: upsertError } = await supabase.from("stripe_customer").upsert({
@@ -41,6 +43,7 @@ async function fixStripeCustomerBinding() {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }, { onConflict: "customer_id" });
+        console.log('[db:stripe_customer] upsert', { userId: user.id, customerId: customer.id }, { error: upsertError });
         if (upsertError) {
           console.error(`[失败] 绑定 user_id=${user.id} <-> customer_id=${customer.id} 失败:`, upsertError);
         } else {
