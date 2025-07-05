@@ -151,6 +151,7 @@ export function BillingPageClient({ user }: BillingPageClientProps) {
                       <p className="text-sm text-muted-foreground">
                         ID: {subscription.subscriptionId}
                       </p>
+                      {/*
                       {subscription.startDate && (
                         <p className="text-xs text-muted-foreground">
                           Start: {subscription.startDate}
@@ -166,6 +167,7 @@ export function BillingPageClient({ user }: BillingPageClientProps) {
                           Amount: ${(subscription.amount / 100 || 0).toFixed(2)}
                         </p>
                       )}
+                      */}
                     </div>
                     <Badge
                       variant={

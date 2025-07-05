@@ -9,7 +9,7 @@ import {
   supabaseAuth,
 } from "~/lib/supabase-auth-client";
 import { useRouter } from "next/navigation";
-import { CurrentUserAvatar } from "~/components/ui/current-user-avatar";
+import { CurrentUserAvatar } from "~/components/current-user-avatar";
 
 // 全局图片数状态（可用context或localStorage实现，这里用localStorage简单演示）
 function useImageCount() {

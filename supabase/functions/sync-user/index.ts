@@ -5,7 +5,8 @@
 // Setup type definitions for built-in Supabase Runtime APIs
 import "jsr:@supabase/functions-js/edge-runtime.d.ts"
 
-import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
+// import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
+import { serve } from 'https://deno.land/std@0.177.0/http/server.ts' // This import must be available in the Supabase Edge Functions runtime
 
 console.log("Hello from Functions!")
 
@@ -22,11 +23,11 @@ serve(async (req: Request) => {
       const email = record.email
 
       // 调用 Supabase REST API 写入自建 user 表
-      const res = await fetch(`${Deno.env.get('SUPABASE_URL')}/rest/v1/user`, {
+      const res = await fetch(`${(typeof Deno !== 'undefined' ? Deno.env.get('SUPABASE_URL') : process.env.SUPABASE_URL)}/rest/v1/user`, {
         method: 'POST',
         headers: {
-          'apikey': Deno.env.get('SUPABASE_ANON_KEY')!,
-          'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+          'apikey': (typeof Deno !== 'undefined' ? Deno.env.get('SUPABASE_ANON_KEY') : process.env.SUPABASE_ANON_KEY)!,
+          'Authorization': `Bearer ${(typeof Deno !== 'undefined' ? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') : process.env.SUPABASE_SERVICE_ROLE_KEY)}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify([{ id: userId, email }]),
