@@ -12,5 +12,6 @@ next-env.d.ts
 .exe
 .dll
 .env
+.env.local
 
 .vercel
