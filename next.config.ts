@@ -17,6 +17,14 @@ const config = {
       { hostname: "zvcxdyuidlhzvmhsviwc.supabase.co", protocol: "https" },
     ],
   },
+  webpack: (config) => {
+    config.ignoreWarnings = [
+      (warning: { message: string }) =>
+        typeof warning.message === 'string' &&
+        warning.message.includes('Critical dependency: the request of a dependency is an expression'),
+    ];
+    return config;
+  },
 } satisfies NextConfig;
 
 const withNextIntl = createNextIntlPlugin('./src/i18n/i18nServer.ts');
