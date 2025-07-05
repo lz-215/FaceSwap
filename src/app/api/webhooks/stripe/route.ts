@@ -199,10 +199,11 @@ async function handleSubscriptionChange(event: Stripe.Event) {
   const subscription = event.data.object as Stripe.Subscription;
   const customerId = subscription.customer as string;
 
-  console.log(`[webhook] 处理订阅变更: ${event.type}, 订阅ID: ${subscription.id}, 客户ID: ${customerId}`);
+  console.log(`[webhook] [handleSubscriptionChange] 开始处理订阅变更: ${event.type}, 订阅ID: ${subscription.id}, 客户ID: ${customerId}`);
 
   try {
     const supabase = await createClient();
+    console.log('[webhook] [handleSubscriptionChange] 已创建 Supabase 客户端');
 
     // 获取商品信息
     let productId = "";
@@ -211,6 +212,9 @@ async function handleSubscriptionChange(event: Stripe.Event) {
         subscription.items.data[0].price.product as string,
       );
       productId = product.id;
+      console.log(`[webhook] [handleSubscriptionChange] 获取商品信息成功: productId=${productId}`);
+    } else {
+      console.log('[webhook] [handleSubscriptionChange] 订阅无商品信息');
     }
 
     // 查找对应的用户
@@ -218,212 +222,76 @@ async function handleSubscriptionChange(event: Stripe.Event) {
     try {
       customer = await stripe.customers.retrieve(customerId);
       if (customer.deleted) {
-        console.warn(`[webhook] 客户 ${customerId} 已被删除，尝试从数据库查找关联`);
+        console.warn(`[webhook] [handleSubscriptionChange] 客户 ${customerId} 已被删除，尝试从数据库查找关联`);
         customer = null;
+      } else {
+        console.log(`[webhook] [handleSubscriptionChange] 获取客户信息成功: ${customerId}`);
       }
     } catch (error) {
-      console.error(`[webhook] 获取客户信息失败: ${customerId}`, error);
+      console.error(`[webhook] [handleSubscriptionChange] 获取客户信息失败: ${customerId}`, error);
       customer = null;
     }
 
     // 从元数据中获取用户ID
     let userId = customer?.metadata?.userId;
+    console.log(`[webhook] [handleSubscriptionChange] 从 customer.metadata.userId 获取 userId: ${userId}`);
     
-    // 如果没有从客户元数据获取到userId，尝试多种方式查找
-    if (!userId) {
-      console.log(`[webhook] 尝试多种方式查找用户关联`);
-      
-      // 1. 通过customer_id查找
-      const { data: userRecord, error: userError } = await supabase
+    // 如果没有从客户元数据获取到userId，尝试从订阅元数据中获取
+    if (!userId && subscription.metadata?.userId) {
+      console.log(`[webhook] [handleSubscriptionChange] 从订阅metadata中获取用户ID: ${subscription.metadata.userId}`);
+      // 验证用户ID是否有效
+      const { data: user, error: userError } = await supabase
         .from("user")
-        .select("id, created_at")
-        .eq("customer_id", customerId)
+        .select("id, email, created_at")
+        .eq("id", subscription.metadata.userId)
         .single();
-
-      if (userRecord?.id) {
-        userId = userRecord.id;
-        console.log(`[webhook] 通过customer_id找到用户: ${userId}, 记录创建时间: ${userRecord.created_at}`);
-      }
-      // 2. 如果有客户邮箱，尝试通过邮箱匹配
-      else if (customer?.email) {
-        console.log(`[webhook] 尝试通过email匹配用户: ${customer.email}`);
-        
-        const { data: user } = await supabase
-          .from("user")
-          .select("id")
-          .eq("email", customer.email)
-          .single();
-        
-        if (user) {
-          userId = user.id;
-          console.log(`[webhook] 通过email找到用户: ${userId}`);
-          
-          // 自动补全 stripe_customer 绑定
-          try {
-            await supabase.from("stripe_customer").upsert({
-              id: createId(),
-              user_id: userId,
-              customer_id: customerId,
-              updated_at: new Date().toISOString(),
-              created_at: new Date().toISOString(),
-            }, { onConflict: "user_id" });
-            console.log(`[webhook] 已自动补全 stripe_customer 绑定: user_id=${userId}, customer_id=${customerId}`);
-            
-            // 新增：同步 user 表 customer_id 字段
-            const { error: userUpdateError } = await supabase
-              .from("user")
-              .update({ customer_id: customerId, updated_at: new Date().toISOString() })
-              .eq("id", userId);
-            if (userUpdateError) {
-              console.error(`[webhook] 同步user表customer_id失败:`, userUpdateError);
-            }
-
-            // 更新客户元数据
-            if (customer && !customer.deleted) {
-              await stripe.customers.update(customerId, {
-                metadata: {
-                  ...customer.metadata,
-                  userId: user.id,
-                  linkedBy: "email_match",
-                  linkedAt: new Date().toISOString(),
-                },
-              });
-              console.log(`[webhook] 已更新客户metadata`);
-            }
-          } catch (err: any) {
-            if (err.code === '23505') {
-              const { error: updateError } = await supabase
-                .from("stripe_customer")
-                .update({
-                  customer_id: customerId,
-                  updated_at: new Date().toISOString(),
-                })
-                .eq("user_id", userId);
-              
-              if (updateError) {
-                console.error(`[webhook] 更新stripe_customer记录失败:`, updateError);
-                throw updateError;
-              }
-            } else {
-              console.error(`[webhook] 自动补全 stripe_customer 绑定失败`, err);
-              throw err;
-            }
-          }
-        }
-      }
-      
-      // 3. 尝试从订阅元数据中获取
-      if (!userId && subscription.metadata?.userId) {
-        console.log(`[webhook] 步骤5: 从订阅metadata中获取用户ID: ${subscription.metadata.userId}`);
-        
-        // 验证用户ID是否有效
-        const { data: user, error: userError } = await supabase
-          .from("user")
-          .select("id, email, created_at")
-          .eq("id", subscription.metadata.userId)
-          .single();
-          
-        console.log(`[webhook] 验证订阅metadata中的用户ID结果:`, {
-          found: !!user,
-          error: userError,
-          userId: subscription.metadata.userId,
-          userEmail: user?.email,
-          createdAt: user?.created_at,
-        });
-
-        if (user) {
-          userId = user.id;
-          console.log(`[webhook] 验证订阅metadata中的用户ID有效: ${userId}`);
-        } else {
-          console.warn(`[webhook] 订阅metadata中的用户ID无效: ${subscription.metadata.userId}, 错误:`, userError);
-        }
+      if (user) {
+        userId = user.id;
+        console.log(`[webhook] [handleSubscriptionChange] 订阅metadata中的用户ID有效: ${userId}`);
+      } else {
+        console.warn(`[webhook] [handleSubscriptionChange] 订阅metadata中的用户ID无效: ${subscription.metadata.userId}, 错误:`, userError);
       }
     }
 
     if (!userId) {
       // 详细日志
-      console.warn(`[webhook] 所有方法都无法找到用户ID，无法同步订阅状态: ${subscription.id}`);
-      console.warn('[webhook] 详细上下文:', {
+      console.warn(`[webhook] [handleSubscriptionChange] 无法找到用户ID，无法同步订阅状态: ${subscription.id}`);
+      console.warn('[webhook] [handleSubscriptionChange] 详细上下文:', {
         subscriptionId: subscription.id,
         customerId,
         customerEmail: customer?.email,
         subscriptionMetadata: subscription.metadata,
       });
-      // 尝试通过 customer.email 自动补全
-      if (customer?.email) {
-        const { data: userByEmail, error: userByEmailError } = await supabase
-          .from('user')
-          .select('id')
-          .eq('email', customer.email)
-          .single();
-        if (userByEmail) {
-          userId = userByEmail.id;
-          // 自动补全 user 表 customer_id 字段
-          const { error: updateUserError } = await supabase
-            .from('user')
-            .update({ customer_id: customerId, updated_at: new Date().toISOString() })
-            .eq('id', userId);
-          if (updateUserError) {
-            console.error('[webhook] 自动补全 user.customer_id 失败:', updateUserError);
-          } else {
-            console.log('[webhook] 已通过 email 自动补全 user.customer_id:', { userId, customerId });
-          }
-        } else {
-          console.warn('[webhook] 通过 email 自动补全 userId 失败:', userByEmailError);
-        }
-      }
-      // 尝试通过 subscription.metadata.userEmail 自动补全
-      if (!userId && subscription.metadata?.userEmail) {
-        const { data: userByMetaEmail, error: userByMetaEmailError } = await supabase
-          .from('user')
-          .select('id')
-          .eq('email', subscription.metadata.userEmail)
-          .single();
-        if (userByMetaEmail) {
-          userId = userByMetaEmail.id;
-          const { error: updateUserError } = await supabase
-            .from('user')
-            .update({ customer_id: customerId, updated_at: new Date().toISOString() })
-            .eq('id', userId);
-          if (updateUserError) {
-            console.error('[webhook] 自动补全 user.customer_id (metadata) 失败:', updateUserError);
-          } else {
-            console.log('[webhook] 已通过 metadata.userEmail 自动补全 user.customer_id:', { userId, customerId });
-          }
-        } else {
-          console.warn('[webhook] 通过 metadata.userEmail 自动补全 userId 失败:', userByMetaEmailError);
-        }
-      }
-      if (!userId) {
-        throw new Error('无法找到用户ID，无法同步订阅状态');
-      }
+      return; // 找不到userId直接返回，不做任何补全
     }
 
     // 同步 user 表 subscription_status 字段
+    console.log(`[webhook] [handleSubscriptionChange] 开始同步 user.subscription_status: userId=${userId}, status=${subscription.status}`);
     const { error: statusUpdateError } = await supabase
       .from("user")
       .update({ subscription_status: subscription.status, updated_at: new Date().toISOString() })
       .eq("id", userId);
     if (statusUpdateError) {
-      console.error(`[webhook] 同步user表subscription_status失败:`, statusUpdateError);
+      console.error(`[webhook] [handleSubscriptionChange] 同步user表subscription_status失败:`, statusUpdateError);
     } else {
-      console.log(`[webhook] 已同步user表subscription_status: ${subscription.status}`);
+      console.log(`[webhook] [handleSubscriptionChange] 已同步user表subscription_status: ${subscription.status}`);
     }
 
     // 只有订阅为 active 时才奖励积分
     if (subscription.status === 'active') {
       try {
+        console.log(`[webhook] [handleSubscriptionChange] 订阅状态为 active，准备发放奖励积分`);
         await handleSubscriptionBonusCredits(subscription, userId);
-        console.log(`[webhook] 已为用户 ${userId} 发放订阅奖励积分`);
+        console.log(`[webhook] [handleSubscriptionChange] 已为用户 ${userId} 发放订阅奖励积分`);
       } catch (bonusError) {
-        console.error(`[webhook] 订阅奖励积分发放失败:`, bonusError);
+        console.error(`[webhook] [handleSubscriptionChange] 订阅奖励积分发放失败:`, bonusError);
       }
     } else {
-      console.log(`[webhook] 订阅状态为 ${subscription.status}，未发放奖励积分`);
+      console.log(`[webhook] [handleSubscriptionChange] 订阅状态为 ${subscription.status}，未发放奖励积分`);
     }
 
   } catch (error) {
-    console.error(`[webhook] 订阅处理失败: ${subscription.id}`, error);
+    console.error(`[webhook] [handleSubscriptionChange] 订阅处理失败: ${subscription.id}`, error);
     throw error;
   }
 }

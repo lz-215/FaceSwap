@@ -20,10 +20,6 @@ interface SubscriptionCardsProps {
   locale?: string;
 }
 
-// 1. 读取 Stripe 价格ID
-const MONTHLY_PRICE_ID = process.env.NEXT_PUBLIC_STRIPE_MONTHLY_PRICE_ID!;
-const YEARLY_PRICE_ID = process.env.NEXT_PUBLIC_STRIPE_YEARLY_PRICE_ID!;
-
 const PLANS = [
   {
     id: "monthly",
@@ -34,8 +30,7 @@ const PLANS = [
     price: 16.9,
     credits: 120,
     priceSuffix: { zh: "/月", en: "/month" },
-    priceId: MONTHLY_PRICE_ID,
-    interval: "month",
+    stripeUrl: "https://buy.stripe.com/test_bJebJ30h6gKU6I04fE43S04",
     highlight: false,
     badge: null,
   },
@@ -48,8 +43,7 @@ const PLANS = [
     price: 118.8,
     credits: 1800,
     priceSuffix: { zh: "/年", en: "/year" },
-    priceId: YEARLY_PRICE_ID,
-    interval: "year",
+    stripeUrl: "https://buy.stripe.com/test_6oU14pfc07ak0jCbI643S05",
     highlight: true,
     badge: {
       zh: "最划算",
@@ -71,41 +65,13 @@ export function SubscriptionCards({ locale = "en" }: SubscriptionCardsProps) {
     }).format(price);
   };
 
-  const handleSubscribe = async (
-    planId: string,
-    priceId: string,
-    interval: string
-  ) => {
+  const handleSubscribe = (planId: string, url: string) => {
     if (!user) {
       router.push("/auth/sign-in");
       return;
     }
     setLoadingId(planId);
-    try {
-      const res = await fetch("/api/stripe/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ priceId, interval }),
-      });
-      const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        toast({
-          title: "支付跳转失败",
-          description: data.error || "未知错误",
-          variant: "destructive",
-        });
-        setLoadingId(null);
-      }
-    } catch (e) {
-      toast({
-        title: "网络错误",
-        description: String(e),
-        variant: "destructive",
-      });
-      setLoadingId(null);
-    }
+    window.location.href = url;
   };
 
   return (
@@ -228,17 +194,24 @@ export function SubscriptionCards({ locale = "en" }: SubscriptionCardsProps) {
             </CardContent>
             <CardFooter className="pt-3">
               <Button
-                onClick={() =>
-                  handleSubscribe(plan.id, plan.priceId, plan.interval)
-                }
+                onClick={() => handleSubscribe(plan.id, plan.stripeUrl)}
                 disabled={loadingId === plan.id}
                 className="w-full bg-primary hover:bg-primary/90 text-white py-2 text-sm"
                 size="lg"
               >
                 {loadingId === plan.id ? (
-                  <Loader2 className="animate-spin" />
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    {locale === "zh" ? "跳转中..." : "Redirecting..."}
+                  </>
+                ) : !user ? (
+                  <>{locale === "zh" ? "请先登录" : "Sign in to subscribe"}</>
                 ) : (
-                  <>{locale === "zh" ? "订阅" : "Subscribe"}</>
+                  <>
+                    {locale === "zh"
+                      ? `立即订阅 - 获得 ${plan.credits} 积分`
+                      : `Subscribe Now - Get ${plan.credits} Credits`}
+                  </>
                 )}
               </Button>
             </CardFooter>
