@@ -9,6 +9,7 @@ import {
   supabaseAuth,
 } from "~/lib/supabase-auth-client";
 import { useRouter } from "next/navigation";
+import { CurrentUserAvatar } from "~/components/current-user-avatar";
 
 // 全局图片数状态（可用context或localStorage实现，这里用localStorage简单演示）
 function useImageCount() {
@@ -74,9 +75,7 @@ export default function ProfilePageClient() {
     <div className="flex flex-col items-center justify-center min-h-screen bg-background">
       <div className="flex flex-col items-center">
         <div className="flex flex-col items-center mb-4">
-          <Avatar className="w-24 h-24 text-4xl bg-primary text-primary-foreground">
-            <AvatarFallback>q</AvatarFallback>
-          </Avatar>
+          <CurrentUserAvatar />
           <div className="mt-2 text-foreground text-lg font-bold">
             {userName}
           </div>

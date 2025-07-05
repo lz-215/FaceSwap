@@ -444,7 +444,48 @@ async function handleSubscriptionBonusCredits(subscription: Stripe.Subscription,
       description = "年付订阅成功赠送1800积分";
     }
 
-    console.log(`[webhook] 订阅奖励积分: userId=${userId}, creditsToAdd=${creditsToAdd}, description=${description}, amount=${amount}`);
+    // 新增：仅在本周期未写入时插入 subscription_credits
+    const supabase = await createClient();
+    // Stripe.Subscription 类型声明可能缺失，需用 any 断言
+    const startDate = new Date((subscription as any).current_period_start * 1000).toISOString();
+    const endDate = new Date((subscription as any).current_period_end * 1000).toISOString();
+
+    // 检查本周期是否已存在记录
+    const { data: existing, error: checkError } = await supabase
+      .from("subscription_credits")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("subscription_id", subscription.id)
+      .eq("start_date", startDate)
+      .eq("end_date", endDate)
+      .maybeSingle();
+
+    if (checkError) {
+      console.error("[webhook] 检查 subscription_credits 失败:", checkError);
+      throw checkError;
+    }
+
+    if (!existing) {
+      const { error: insertError } = await supabase.from("subscription_credits").insert({
+        user_id: userId,
+        subscription_id: subscription.id,
+        credits: creditsToAdd,
+        remaining_credits: creditsToAdd,
+        start_date: startDate,
+        end_date: endDate,
+        status: "active"
+      });
+      if (insertError) {
+        console.error("[webhook] 插入 subscription_credits 失败:", insertError);
+        throw insertError;
+      } else {
+        console.log(`[webhook] 已写入 subscription_credits: userId=${userId}, credits=${creditsToAdd}, period=${startDate}~${endDate}`);
+      }
+    } else {
+      console.log(`[webhook] 本周期 subscription_credits 已存在，跳过插入: userId=${userId}, period=${startDate}~${endDate}`);
+    }
+
+    // 保留原有积分奖励逻辑
     await addBonusCreditsWithTransaction(userId, creditsToAdd, description, {
       subscriptionId: subscription.id,
       bonusType: "subscription_welcome",

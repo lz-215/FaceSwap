@@ -20,6 +20,8 @@ import { useSupabaseSession } from "~/lib/supabase-auth-client";
 import { useTranslations } from "next-intl";
 import { useCreditsV2 } from "~/lib/hooks/use-credits-v2";
 import { CreditTransactions } from "~/components/payment/credit-transactions";
+import { CurrentUserAvatar } from "~/components/current-user-avatar";
+import { useSubscription } from "~/lib/hooks/use-subscription";
 
 export default function DashboardPage() {
   const { user, loading } = useSupabaseSession();
@@ -37,6 +39,12 @@ export default function DashboardPage() {
     error: creditsError,
     fetchCredits,
   } = useCreditsV2();
+
+  const {
+    hasActiveSubscription,
+    isLoading: subscriptionLoading,
+    subscriptions,
+  } = useSubscription();
 
   // 刷新积分数据
   useEffect(() => {
@@ -67,6 +75,16 @@ export default function DashboardPage() {
   const accountEmail = user?.email || "-";
   const showRecharge = balance === 0;
 
+  // 只有有订阅且充值过才显示账单入口，否则显示充值引导
+  const canViewBilling = hasActiveSubscription && totalRecharged > 0;
+  const isBillingLoading = subscriptionLoading || creditsLoading;
+
+  // 取最新 active 订阅的到期时间
+  const activeSub = subscriptions.find((sub) => sub.status === "active");
+  const subscriptionEndDate = activeSub?.endDate
+    ? new Date(activeSub.endDate).toLocaleDateString()
+    : null;
+
   const copyToClipboard = async () => {
     try {
       await navigator.clipboard.writeText(accountId);
@@ -85,14 +103,7 @@ export default function DashboardPage() {
           <div className="relative">
             <div className="flex justify-center mb-6">
               <div className="relative">
-                <Avatar className="w-24 h-24 bg-slate-100 ring-4 ring-white">
-                  <AvatarFallback className="text-slate-900 text-2xl font-bold bg-transparent">
-                    {accountEmail.charAt(0).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="absolute -top-2 -right-2 w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
-                  <Sparkles className="w-4 h-4 text-white" />
-                </div>
+                <CurrentUserAvatar />
               </div>
             </div>
             <h1 className="text-4xl font-bold text-slate-900 mb-3">
@@ -105,6 +116,11 @@ export default function DashboardPage() {
                 {t("active")}
               </span>
             </div>
+            {hasActiveSubscription && subscriptionEndDate && (
+              <div className="mt-2 text-sm text-blue-600 font-semibold">
+                订阅到期时间：{subscriptionEndDate}
+              </div>
+            )}
           </div>
         </div>
 
@@ -284,34 +300,59 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        {/* Recharge Section */}
-        {showRecharge && (
-          <div className="mt-12">
-            <Card className="bg-blue-300 border-0 shadow-2xl text-white">
-              <CardHeader>
-                <div className="flex items-center space-x-3">
-                  <div className="p-3 bg-blue-500 rounded-xl">
-                    <Zap className="h-6 w-6 text-white" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-xl font-bold">
-                      {t("rechargeTitle")}
-                    </CardTitle>
-                    <p className="text-sm text-blue-100">{t("rechargeDesc")}</p>
-                  </div>
+        {/* Recharge/Billing Section */}
+        <div className="mt-12">
+          <Card className="bg-blue-300 border-0 shadow-2xl text-white">
+            <CardHeader>
+              <div className="flex items-center space-x-3">
+                <div className="p-3 bg-blue-500 rounded-xl">
+                  <Zap className="h-6 w-6 text-white" />
                 </div>
-              </CardHeader>
-              <CardContent>
+                <div>
+                  <CardTitle className="text-xl font-bold">
+                    {canViewBilling
+                      ? t("billingTitle", {
+                          defaultMessage: "Subscription Billing",
+                        })
+                      : t("rechargeTitle")}
+                  </CardTitle>
+                  <p className="text-sm text-blue-100">
+                    {canViewBilling
+                      ? t("billingDesc", {
+                          defaultMessage:
+                            "View your subscription and billing history.",
+                        })
+                      : t("rechargeDesc")}
+                  </p>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {isBillingLoading ? (
+                <Button
+                  className="w-full bg-white text-blue-600 font-bold text-lg"
+                  disabled
+                >
+                  Loading...
+                </Button>
+              ) : canViewBilling ? (
+                <Button
+                  className="w-full bg-white text-blue-600 font-bold text-lg hover:bg-blue-50"
+                  onClick={() => router.push("/dashboard/billing")}
+                >
+                  {t("viewBilling", { defaultMessage: "View Billing" })}
+                </Button>
+              ) : (
                 <Button
                   className="w-full bg-white text-blue-600 font-bold text-lg hover:bg-blue-50"
                   onClick={() => router.push("/pricing")}
                 >
                   {t("rechargeNow")}
                 </Button>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );

@@ -4,6 +4,7 @@ import { useCurrentUserImage } from "~/lib/hooks/use-current-user-image";
 import { useCurrentUserName } from "~/lib/hooks/use-current-user-name";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { useSubscription } from "~/lib/hooks/use-subscription";
+import React from "react";
 
 export const CurrentUserAvatar = () => {
   const profileImage = useCurrentUserImage();
@@ -15,15 +16,43 @@ export const CurrentUserAvatar = () => {
     ?.join("")
     ?.toUpperCase();
 
+  // 添加日志，排查会员头像未刷新的原因
+  console.log(
+    "[CurrentUserAvatar] hasActiveSubscription:",
+    hasActiveSubscription,
+    "profileImage:",
+    profileImage,
+    "name:",
+    name
+  );
+
+  // 添加流光动画样式
+  const glowClass = hasActiveSubscription
+    ? "ring-4 ring-yellow-400 w-12 h-12 md:w-16 md:h-16 animate-glow"
+    : "w-12 h-12 md:w-16 md:h-16";
+
   return (
     <div className="relative inline-block">
-      <Avatar
-        className={
-          hasActiveSubscription
-            ? "ring-4 ring-yellow-400 w-12 h-12 md:w-16 md:h-16" // 金色圆环
-            : "w-12 h-12 md:w-16 md:h-16"
+      <style jsx>{`
+        @keyframes glow {
+          0% {
+            box-shadow: 0 0 8px 2px #ffe066, 0 0 0 0 #fff0;
+            border-color: #ffe066;
+          }
+          50% {
+            box-shadow: 0 0 24px 8px #ffd700, 0 0 0 4px #fff7;
+            border-color: #ffd700;
+          }
+          100% {
+            box-shadow: 0 0 8px 2px #ffe066, 0 0 0 0 #fff0;
+            border-color: #ffe066;
+          }
         }
-      >
+        .animate-glow {
+          animation: glow 2s linear infinite;
+        }
+      `}</style>
+      <Avatar className={glowClass}>
         {profileImage && <AvatarImage alt={initials} src={profileImage} />}
         <AvatarFallback>{initials}</AvatarFallback>
       </Avatar>

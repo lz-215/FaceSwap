@@ -570,6 +570,12 @@
     "creditsDepleted": "积分已耗尽",
     "creditsDepletedDesc": "您已用完所有积分！购买更多积分以继续使用换脸功能。",
     "rechargeNow": "立即充值",
-    "failedToLoad": "加载失败"
+    "failedToLoad": "加载失败",
+    "billingTitle": "订阅账单",
+    "billingDesc": "查看你的订阅和账单历史。",
+    "viewBilling": "查看账单",
+    "rechargeTitle": "充值",
+    "rechargeDesc": "充值后可继续使用服务。",
+    "rechargeNow": "立即充值"
   }
 } 

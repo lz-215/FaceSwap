@@ -6,6 +6,7 @@ export async function GET(request: NextRequest) {
   try {
     const user = await getCurrentSupabaseUser();
     
+    console.log('[subscription-status] 当前 user.id:', user?.id);
     if (!user) {
       return NextResponse.json({ error: "未授权" }, { status: 401 });
     }
@@ -17,6 +18,8 @@ export async function GET(request: NextRequest) {
       .select("subscription_status")
       .eq("id", user.id)
       .single();
+
+    console.log('[subscription-status] 查到的 userRow:', userRow);
 
     if (error) {
       console.error("获取订阅状态失败:", error);

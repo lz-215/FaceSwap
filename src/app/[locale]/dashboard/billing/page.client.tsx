@@ -143,9 +143,7 @@ export function BillingPageClient({ user }: BillingPageClientProps) {
               <div className="space-y-4">
                 {subscriptions.map((subscription) => (
                   <div
-                    className={`
-                      flex items-center justify-between rounded-lg border p-4
-                    `}
+                    className="flex flex-col md:flex-row md:items-center md:justify-between rounded-lg border p-4 gap-2"
                     key={subscription.id}
                   >
                     <div>
@@ -153,6 +151,21 @@ export function BillingPageClient({ user }: BillingPageClientProps) {
                       <p className="text-sm text-muted-foreground">
                         ID: {subscription.subscriptionId}
                       </p>
+                      {subscription.startDate && (
+                        <p className="text-xs text-muted-foreground">
+                          Start: {subscription.startDate}
+                        </p>
+                      )}
+                      {subscription.endDate && (
+                        <p className="text-xs text-muted-foreground">
+                          End: {subscription.endDate}
+                        </p>
+                      )}
+                      {subscription.amount && (
+                        <p className="text-xs text-muted-foreground">
+                          Amount: ${(subscription.amount / 100 || 0).toFixed(2)}
+                        </p>
+                      )}
                     </div>
                     <Badge
                       variant={
@@ -166,7 +179,7 @@ export function BillingPageClient({ user }: BillingPageClientProps) {
               </div>
             ) : (
               <p className="text-muted-foreground">
-                You don't have any active subscriptions.
+                You don't have any subscriptions yet.
               </p>
             )}
           </CardContent>
@@ -184,27 +197,7 @@ export function BillingPageClient({ user }: BillingPageClientProps) {
       </div>
 
       {/* Payment Plans */}
-      {!hasActiveSubscription && (
-        <div
-          className={`
-            grid gap-6
-            md:grid-cols-2
-          `}
-        >
-          <PaymentForm
-            buttonText="Subscribe to Pro"
-            description="Get access to all premium features and priority support."
-            productSlug="pro"
-            title="Pro Plan"
-          />
-          <PaymentForm
-            buttonText="Subscribe to Premium"
-            description="Everything in Pro plus exclusive content and early access to new features."
-            productSlug="premium"
-            title="Premium Plan"
-          />
-        </div>
-      )}
+      {/* 不再显示套餐卡片 */}
     </div>
   );
 }

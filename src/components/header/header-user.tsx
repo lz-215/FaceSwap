@@ -15,6 +15,7 @@ import {
 } from "~/components/ui/dropdown-menu";
 
 import { CurrentUserAvatar } from "../current-user-avatar";
+import { useSubscription } from "~/lib/hooks/use-subscription";
 
 interface HeaderUserDropdownProps {
   isDashboard: boolean;
@@ -30,6 +31,11 @@ export function HeaderUserDropdown({
   userName,
 }: HeaderUserDropdownProps) {
   const t = useTranslations("Navbar");
+  const { hasActiveSubscription, subscriptions } = useSubscription();
+  const activeSub = subscriptions.find((sub) => sub.status === "active");
+  const subscriptionEndDate = activeSub?.endDate
+    ? new Date(activeSub.endDate).toLocaleDateString()
+    : null;
 
   const handleSignOut = async () => {
     try {
@@ -57,6 +63,11 @@ export function HeaderUserDropdown({
             {userEmail && (
               <p className="w-[200px] truncate text-sm text-muted-foreground">
                 {userEmail}
+              </p>
+            )}
+            {hasActiveSubscription && subscriptionEndDate && (
+              <p className="text-xs text-blue-600 font-semibold mt-1">
+                订阅到期：{subscriptionEndDate}
               </p>
             )}
           </div>

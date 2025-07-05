@@ -507,7 +507,13 @@
     "creditsDepleted": "Credits Depleted",
     "creditsDepletedDesc": "You've used all your credits! Purchase more to continue using face swap features.",
     "rechargeNow": "Recharge Now",
-    "failedToLoad": "Failed to load"
+    "failedToLoad": "Failed to load",
+    "billingTitle": "Subscription Billing",
+    "billingDesc": "View your subscription and billing history.",
+    "viewBilling": "View Billing",
+    "rechargeTitle": "Recharge",
+    "rechargeDesc": "Recharge your account to continue using services.",
+    "rechargeNow": "Recharge Now"
   },
   "delete": "Delete",
   "resultAlt": "Face swap result",

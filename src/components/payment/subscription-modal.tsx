@@ -103,6 +103,8 @@ export function SubscriptionModal({
   const handleSuccess = () => {
     setOpen(false);
     onSuccess?.(subscriptionId);
+    // 支付/订阅成功后自动刷新页面，确保会员权益立即生效
+    window.location.reload();
   };
 
   const handleError = (errorMessage: string) => {

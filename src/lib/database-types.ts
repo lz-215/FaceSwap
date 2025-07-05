@@ -55,6 +55,9 @@ export interface PolarSubscription {
   subscriptionId: string;
   productId: string;
   status: string;
+  startDate?: string;
+  endDate?: string;
+  amount?: number;
 }
 
 // 数据库表名常量

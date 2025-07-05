@@ -100,8 +100,8 @@ BEGIN
       NOW()
     );
   ELSE
-    -- 更新现有余额
-    v_new_balance := v_user_balance.balance + p_credits;
+    -- 更新现有余额：直接重置为新周期额度（清零旧积分，只保留新积分）
+    v_new_balance := p_credits;
     
     UPDATE user_credit_balance 
     SET 
