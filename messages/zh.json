@@ -350,7 +350,11 @@
       "title": "需要登录",
       "description": "请登录以查看您的换脸历史记录。",
       "loginButton": "登录"
-    }
+    },
+    "selectAll": "全选",
+    "unselectAll": "取消全选",
+    "batchDelete": "批量删除",
+    "selectedCount": "共选中 {count} 条"
   },
   "Navbar": {
     "home": "首页",
@@ -453,7 +457,9 @@
       "tryNow": "立即体验",
       "qualityAssurance": "高质量AI算法保证",
       "privacyProtection": "安全保护隐私"
-    }
+    },
+    "resultAlt": "换脸结果",
+    "faceSwapResult": "换脸结果"
   },
   "FaceSwapTypes": {
     "title": "革命性的照片换脸工具，适用于各种场合",

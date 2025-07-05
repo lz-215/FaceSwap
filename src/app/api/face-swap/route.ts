@@ -45,6 +45,9 @@ async function fileToDataUrl(file: File): Promise<string> {
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
 
+  // 统一创建 supabase 实例，后续复用
+  const supabase = await createClient();
+
   try {
     logDebugInfo("Face swap request started");
     
@@ -79,7 +82,6 @@ export async function POST(request: NextRequest) {
 
     // 检查积分余额（但不消费）
     try {
-      const supabase = await createClient();
       const { data: balanceData, error: balanceError } = await supabase.rpc('get_user_credits_v2', {
         p_user_id: user.id,
       });
@@ -284,60 +286,74 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 1. Face++ 成功后，先扣除积分
+    const { data: creditResult, error: creditError } = await supabase.rpc('consume_credits_v2', {
+      p_user_id: user.id,
+      action_type: 'face_swap',
+      amount_override: 1,
+      transaction_description: '人脸交换操作'
+    });
+    if (creditError || !creditResult?.success) {
+      return NextResponse.json({
+        error: "Failed to consume credits",
+        details: creditError?.message || "扣除积分失败",
+        processingTime,
+      }, { status: 500 });
+    }
+
     // 🎉 Face++ 成功！现在开始消费积分
     logDebugInfo("Face++ API success, now consuming credits", {
       resultLength: faceppData.result.length,
       processingTime
     });
 
+    let resultImagePath = null;
     try {
-      const supabase = await createClient();
-      const { data: creditResult, error: creditError } = await supabase.rpc('consume_credits_v2', {
-        user_id: user.id,
-        action_type: 'face_swap',
-        transaction_description: '人脸交换操作'
-      });
-
-      if (creditError) {
-        // 积分消费失败，但Face++已经成功，这是个问题，但我们仍然返回结果
-        console.error("❌ Failed to consume credits after successful face swap:", creditError);
-        logDebugInfo("Credit consumption failed after successful face swap", { 
-          userId: user.id, 
-          error: creditError.message
+      // 2. 上传换脸结果图片到 Supabase Storage
+      const fileName = `face-swap/${user.id}/${Date.now()}.jpg`;
+      const buffer = Buffer.from(faceppData.result, "base64");
+      const { data: storageData, error: storageError } = await supabase.storage
+        .from("swap-after")
+        .upload(fileName, buffer, {
+          contentType: "image/jpeg",
+          upsert: true,
         });
-        
-        // 仍然返回成功结果，但带警告
-        return NextResponse.json({ 
-          result: faceppData.result,
-          success: true,
-          processingTime,
-          warning: "Face swap completed but failed to update credits"
-        });
+      if (storageError) {
+        throw new Error("Failed to upload image to storage: " + storageError.message);
       }
+      resultImagePath = fileName;
+    } catch (err) {
+      console.error("❌ Failed to upload face swap result to storage:", err);
+      return NextResponse.json({
+        error: "Face swap succeeded, but failed to save result image.",
+        details: err instanceof Error ? err.message : String(err),
+        processingTime,
+      }, { status: 500 });
+    }
 
-      if (!creditResult.success) {
-        // 理论上不应该发生，因为我们之前检查过余额
-        console.error("❌ Credit consumption failed after successful face swap:", creditResult);
-        return NextResponse.json({ 
-          result: faceppData.result,
-          success: true,
-          processingTime,
-          warning: "Face swap completed but failed to update credits"
-        });
+    // 3. 写入历史记录表
+    try {
+      const { error: insertError } = await supabase
+        .from("face_swap_histories")
+        .insert([
+          {
+            user_id: user.id,
+            result_image_path: resultImagePath,
+            origin_image_url: null, // 如需存储原图，可上传后填写URL
+            description: "AI换脸结果",
+          },
+        ]);
+      if (insertError) {
+        throw new Error(insertError.message);
       }
-
-      logDebugInfo("Credits consumed successfully", { 
-        userId: user.id, 
-        amountConsumed: creditResult.amountConsumed,
-        balanceAfter: creditResult.balanceAfter
-      });
-    } catch (error: any) {
-      console.error("❌ Exception during credit consumption:", error);
-      return NextResponse.json({ 
+    } catch (err) {
+      console.error("❌ Failed to insert face swap history:", err);
+      // 不影响主流程，返回警告
+      return NextResponse.json({
         result: faceppData.result,
         success: true,
         processingTime,
-        warning: "Face swap completed but failed to update credits"
+        warning: "Face swap completed, but failed to record history.",
       });
     }
 

@@ -72,8 +72,7 @@ export default function FaceSwapPage() {
     isLoading: creditsLoading,
     hasEnoughCredits,
     consumeCredits,
-    setCredits,
-    refreshCredits,
+    fetchCredits,
   } = useCreditsV2();
 
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
@@ -266,43 +265,14 @@ export default function FaceSwapPage() {
       if (data.result) {
         setResult(`data:image/jpeg;base64,${data.result}`);
 
-        // 新增：如果后端返回 balanceAfter，直接更新本地积分
-        if (typeof data.balanceAfter === "number") {
-          setCredits((prev) => ({
-            ...prev,
-            balance: data.balanceAfter,
-          }));
-        } else {
-          // 强制刷新一次积分，确保和后端同步
-          await refreshCredits();
-        }
+        // 只刷新积分，不再前端扣除
+        await fetchCredits();
 
-        // 换脸成功后消费积分 - 使用完整版
-        try {
-          const result = await consumeCredits("face_swap", 1, "人脸交换操作");
-          if (result.success) {
-            toast.success(
-              t("success.faceSwapComplete", {
-                defaultMessage: "Face swap completed successfully!",
-              })
-            );
-          } else {
-            toast.warning(
-              t("warning.creditConsumptionFailed", {
-                defaultMessage:
-                  "Face swap completed, but failed to update credits.",
-              })
-            );
-          }
-        } catch (creditError) {
-          console.error("Failed to consume credits:", creditError);
-          toast.warning(
-            t("warning.creditConsumptionFailed", {
-              defaultMessage:
-                "Face swap completed, but failed to update credits.",
-            })
-          );
-        }
+        toast.success(
+          t("success.faceSwapComplete", {
+            defaultMessage: "Face swap completed successfully!",
+          })
+        );
       } else {
         throw new Error("No result returned from face swap API");
       }

@@ -474,7 +474,12 @@
       "title": "Login Required",
       "description": "Please log in to view your face swap history.",
       "loginButton": "Login"
-    }
+    },
+    "selectAll": "Select All",
+    "unselectAll": "Unselect All",
+    "batchDelete": "Batch Delete",
+    "selectedCount": "Total selected: {count}",
+    "faceSwapResult": "Result"
   },
   "Dashboard": {
     "loading": "Loading your dashboard...",
@@ -503,5 +508,8 @@
     "creditsDepletedDesc": "You've used all your credits! Purchase more to continue using face swap features.",
     "rechargeNow": "Recharge Now",
     "failedToLoad": "Failed to load"
-  }
+  },
+  "delete": "Delete",
+  "resultAlt": "Face swap result",
+  "faceSwapResult": "Result"
 } 

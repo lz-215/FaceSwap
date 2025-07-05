@@ -19,11 +19,13 @@ import {
 import { useSupabaseSession } from "~/lib/supabase-auth-client";
 import { useTranslations } from "next-intl";
 import { useCreditsV2 } from "~/lib/hooks/use-credits-v2";
+import { CreditTransactions } from "~/components/payment/credit-transactions";
 
 export default function DashboardPage() {
   const { user, loading } = useSupabaseSession();
   const router = useRouter();
   const t = useTranslations("Dashboard");
+  const tHistory = useTranslations("History");
   const [copied, setCopied] = useState(false);
 
   // 使用真实的积分系统
@@ -255,7 +257,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          {/* Quick Actions */}
+          {/* 历史记录卡片 */}
           <Card className="flex flex-col bg-white border border-slate-200 shadow-lg hover:shadow-xl transition-all duration-300">
             <CardHeader>
               <div className="flex items-center space-x-3">
@@ -264,11 +266,8 @@ export default function DashboardPage() {
                 </div>
                 <div>
                   <CardTitle className="text-lg font-semibold text-slate-900">
-                    {t("quickActions")}
+                    {tHistory("title")}
                   </CardTitle>
-                  <p className="text-sm text-slate-500">
-                    {t("quickActionsDesc")}
-                  </p>
                 </div>
               </div>
             </CardHeader>
@@ -276,10 +275,10 @@ export default function DashboardPage() {
               <Button
                 variant="outline"
                 className="w-full justify-start gap-3 h-12"
-                onClick={() => router.push("/dashboard/billing")}
+                onClick={() => router.push("/dashboard/history")}
               >
-                <CreditCard className="w-4 h-4 text-slate-600" />
-                <span className="text-slate-700">{t("viewBilling")}</span>
+                <Settings className="w-4 h-4 text-slate-600" />
+                <span className="text-slate-700">{tHistory("title")}</span>
               </Button>
             </CardContent>
           </Card>
