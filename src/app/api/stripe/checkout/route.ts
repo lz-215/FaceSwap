@@ -53,8 +53,7 @@ export async function POST(request: NextRequest) {
 
     // 创建结账会话
     const checkoutSession = await stripe.checkout.sessions.create({
-      // customer: customerId, // 注释掉，避免 customer_email 被忽略
-      customer_email: userInfo.email, // 自动填入且不可修改
+      customer: customerId,
       line_items: [
         {
           price: priceId,
