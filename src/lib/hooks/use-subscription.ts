@@ -49,7 +49,7 @@ export function useSubscription(): UseSubscriptionResult {
         throw new Error('Failed to fetch subscriptions');
       }
 
-      const data = (await response.json()) as SubscriptionStatusResponse;
+      const data = await response.json() as { subscriptions: any[] };
       const subs: SubscriptionInfo[] = (data.subscriptions || []).map((sub: any) => ({
         id: sub.id,
         status: sub.status,
