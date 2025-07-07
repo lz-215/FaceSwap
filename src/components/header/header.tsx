@@ -9,7 +9,6 @@ import { useState } from "react";
 import { SEO_CONFIG } from "~/app";
 import { useSupabaseSession } from "~/lib/supabase-auth-client";
 import { cn } from "~/lib/utils";
-import { Cart } from "~/components/cart";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 

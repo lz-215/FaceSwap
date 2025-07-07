@@ -43,6 +43,7 @@ export function ProductCard({
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     if (onAddToCart) {
       setIsAddingToCart(true);
       // Simulate API call
@@ -55,6 +56,7 @@ export function ProductCard({
 
   const handleAddToWishlist = (e: React.MouseEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     if (onAddToWishlist) {
       setIsInWishlist(!isInWishlist);
       onAddToWishlist(product.id);
@@ -63,8 +65,8 @@ export function ProductCard({
 
   const discount = product.originalPrice
     ? Math.round(
-      ((product.originalPrice - product.price) / product.originalPrice) * 100
-    )
+        ((product.originalPrice - product.price) / product.originalPrice) * 100
+      )
     : 0;
 
   const renderStars = () => {
@@ -81,8 +83,8 @@ export function ProductCard({
               i < fullStars
                 ? "fill-yellow-400 text-yellow-400"
                 : i === fullStars && hasHalfStar
-                  ? "fill-yellow-400/50 text-yellow-400"
-                  : "stroke-muted/40 text-muted"
+                ? "fill-yellow-400/50 text-yellow-400"
+                : "stroke-muted/40 text-muted"
             )}
             key={`star-${product.id}-position-${i + 1}`}
           />
@@ -98,7 +100,7 @@ export function ProductCard({
 
   return (
     <div className={cn("group", className)} {...props}>
-      <Link href={`/products/${product.id}`} legacyBehavior>
+      <Link href={`/products/${product.id}`}>
         <Card
           className={cn(
             `

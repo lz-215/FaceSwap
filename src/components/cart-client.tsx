@@ -53,15 +53,15 @@ export function CartClient({ className, mockCart }: CartProps) {
   const totalItems = cartItems.reduce((acc, item) => acc + item.quantity, 0);
   const subtotal = cartItems.reduce(
     (acc, item) => acc + item.price * item.quantity,
-    0,
+    0
   );
 
   const handleUpdateQuantity = (id: string, newQuantity: number) => {
     if (newQuantity < 1) return;
     setCartItems((prev) =>
       prev.map((item) =>
-        item.id === id ? { ...item, quantity: newQuantity } : item,
-      ),
+        item.id === id ? { ...item, quantity: newQuantity } : item
+      )
     );
   };
 
@@ -103,7 +103,9 @@ export function CartClient({ className, mockCart }: CartProps) {
             <div className="text-sm text-muted-foreground">
               {totalItems === 0
                 ? "Your cart is empty"
-                : `You have ${totalItems} item${totalItems !== 1 ? "s" : ""} in your cart`}
+                : `You have ${totalItems} item${
+                    totalItems !== 1 ? "s" : ""
+                  } in your cart`}
             </div>
           </div>
           {isDesktop && (
@@ -138,13 +140,13 @@ export function CartClient({ className, mockCart }: CartProps) {
                 </p>
                 {isDesktop ? (
                   <SheetClose asChild>
-                    <Link href="/products" legacyBehavior>
+                    <Link href="/products">
                       <Button>Browse Products</Button>
                     </Link>
                   </SheetClose>
                 ) : (
                   <DrawerClose asChild>
-                    <Link href="/products" legacyBehavior>
+                    <Link href="/products">
                       <Button>Browse Products</Button>
                     </Link>
                   </DrawerClose>
@@ -184,7 +186,7 @@ export function CartClient({ className, mockCart }: CartProps) {
                             `}
                             href={`/products/${item.id}`}
                             onClick={() => setIsOpen(false)}
-                            legacyBehavior>
+                          >
                             {item.name}
                           </Link>
                           <button

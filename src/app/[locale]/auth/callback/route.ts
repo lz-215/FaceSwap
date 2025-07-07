@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
         // 使用 upsert_user_profile 函数创建或更新用户配置
         const { data: profileResult, error: profileError } = await supabase
           .rpc('upsert_user_profile', {
-            p_user_id: user.id,
+            p_user_id: user.id, // Supabase auth user.id is already UUID format
             p_display_name: displayName,
             p_first_name: firstName,
             p_last_name: lastName,
@@ -75,6 +75,36 @@ export async function GET(request: NextRequest) {
             hint: profileError.hint,
             code: profileError.code
           });
+          
+          // 如果是函数不存在的错误，尝试直接插入到 user_profiles 表
+          if (profileError.code === '42883' || profileError.message?.includes('function') || profileError.message?.includes('does not exist')) {
+            console.log("🔄 Function not found, trying direct table insert...");
+            try {
+              const { data: directResult, error: directError } = await supabase
+                .from('user_profiles')
+                .upsert({
+                  id: user.id,
+                  display_name: displayName,
+                  first_name: firstName,
+                  last_name: lastName,
+                  avatar_url: avatarUrl,
+                  project_id: '0616faceswap',
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString()
+                }, {
+                  onConflict: 'id'
+                });
+
+              if (directError) {
+                console.error("❌ Direct insert also failed:", directError);
+                // 继续执行，但记录错误
+              } else {
+                console.log("✅ Direct user profile insert successful:", directResult);
+              }
+            } catch (directInsertError) {
+              console.error("❌ Direct insert error:", directInsertError);
+            }
+          }
         } else {
           console.log("✅ Auth callback - User profile upserted successfully:", profileResult);
         }
@@ -95,7 +125,33 @@ export async function GET(request: NextRequest) {
               hint: creditError.hint,
               code: creditError.code
             });
-            // 积分初始化失败不应该阻止登录流程
+            
+            // 如果函数不存在，尝试直接创建积分记录
+            if (creditError.code === '42883' || creditError.message?.includes('function') || creditError.message?.includes('does not exist')) {
+              console.log("🔄 Credit function not found, trying direct table insert...");
+              try {
+                const { data: directCreditResult, error: directCreditError } = await supabase
+                  .from('user_credit_balance')
+                  .upsert({
+                    user_id: user.id,
+                    balance: 5,
+                    total_recharged: 5,
+                    total_consumed: 0,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                  }, {
+                    onConflict: 'user_id'
+                  });
+
+                if (directCreditError) {
+                  console.error("❌ Direct credit insert failed:", directCreditError);
+                } else {
+                  console.log("✅ Direct credit balance insert successful:", directCreditResult);
+                }
+              } catch (directCreditInsertError) {
+                console.error("❌ Direct credit insert error:", directCreditInsertError);
+              }
+            }
           } else {
             console.log("✅ Auth callback - Credit balance initialized:", creditResult);
           }
