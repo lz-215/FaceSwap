@@ -97,7 +97,7 @@ export function useCreditsV2() {
 
     try {
       const { data, error } = await supabaseClient.rpc('consume_credits_v2', {
-        user_id: user.id,
+        p_user_id: user.id,
         action_type: actionType,
         amount_override: amountOverride || null,
         transaction_description: description || null,
@@ -146,7 +146,7 @@ export function useCreditsV2() {
 
     try {
       const { data, error } = await supabaseClient.rpc('recharge_credits_v2', {
-        user_id: user.id,
+        p_user_id: user.id,
         amount_to_add: amount,
         payment_intent_id: paymentIntentId || null,
         transaction_description: description || '积分充值',

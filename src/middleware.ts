@@ -18,38 +18,56 @@ export async function middleware(request: NextRequest) {
   // First, let next-intl handle the request to get the response with locale information
   let response = intlMiddleware(request);
 
-  // Now, create a Supabase client and refresh the session
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return request.cookies.get(name)?.value
-        },
-        set(name: string, value: string, options: CookieOptions) {
-          request.cookies.set({ name, value, ...options })
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
-          })
-          response.cookies.set({ name, value, ...options })
-        },
-        remove(name: string, options: CookieOptions) {
-          request.cookies.set({ name, value: '', ...options })
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
-          })
-          response.cookies.set({ name, value: '', ...options })
+  // 获取环境变量
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  // 检查环境变量是否存在
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error('⚠️  Middleware: Missing Supabase environment variables');
+    console.error('NEXT_PUBLIC_SUPABASE_URL:', supabaseUrl ? '✅ Set' : '❌ Missing');
+    console.error('NEXT_PUBLIC_SUPABASE_ANON_KEY:', supabaseAnonKey ? '✅ Set' : '❌ Missing');
+    // 如果环境变量缺失，跳过Supabase处理，只返回intl响应
+    return response;
+  }
+
+  try {
+    // Now, create a Supabase client and refresh the session
+    const supabase = createServerClient(
+      supabaseUrl,
+      supabaseAnonKey,
+      {
+        cookies: {
+          get(name: string) {
+            return request.cookies.get(name)?.value
+          },
+          set(name: string, value: string, options: CookieOptions) {
+            request.cookies.set({ name, value, ...options })
+            response = NextResponse.next({
+              request: {
+                headers: request.headers,
+              },
+            })
+            response.cookies.set({ name, value, ...options })
+          },
+          remove(name: string, options: CookieOptions) {
+            request.cookies.set({ name, value: '', ...options })
+            response = NextResponse.next({
+              request: {
+                headers: request.headers,
+              },
+            })
+            response.cookies.set({ name, value: '', ...options })
+          },
         },
       },
-    },
-  );
+    );
 
-  await supabase.auth.getUser();
+    await supabase.auth.getUser();
+  } catch (error) {
+    console.error('❌ Middleware: Error with Supabase client:', error);
+    // 即使Supabase出错，也继续返回响应，不阻塞页面加载
+  }
 
   return response;
 }

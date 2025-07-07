@@ -165,7 +165,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 构造Face++ API请求
-    const apiForm = new FormData();
+    let apiForm = new FormData();
     apiForm.append("api_key", FACEPP_API_KEY);
     apiForm.append("api_secret", FACEPP_API_SECRET);
     apiForm.append("template_file", origin);
@@ -179,37 +179,113 @@ export async function POST(request: NextRequest) {
       mergeFileSize: face.size,
     });
 
-    const faceppRes = await fetch(FACEPP_MERGEFACE_URL, {
-      method: "POST",
-      body: apiForm,
-      // 添加超时控制
-      signal: AbortSignal.timeout(30000), // 30秒超时
-    });
+    // 添加重试机制
+    let faceppRes;
+    let lastError;
+    const maxRetries = 3;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        logDebugInfo(`Face++ API attempt ${attempt}/${maxRetries}`);
+        
+        faceppRes = await fetch(FACEPP_MERGEFACE_URL, {
+          method: "POST",
+          body: apiForm,
+          headers: {
+            // 移除Content-Type，让浏览器自动设置multipart/form-data边界
+          },
+          signal: AbortSignal.timeout(30000), // 30秒超时
+        });
+        
+        break; // 成功则跳出重试循环
+      } catch (fetchError) {
+        lastError = fetchError;
+        logDebugInfo(`Face++ API attempt ${attempt} failed`, {
+          error: fetchError instanceof Error ? fetchError.message : 'Unknown error',
+          willRetry: attempt < maxRetries
+        });
+        
+        if (attempt < maxRetries) {
+          // 等待1秒后重试
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          // 重新创建FormData，避免流被消费的问题
+          const retryApiForm = new FormData();
+          retryApiForm.append("api_key", FACEPP_API_KEY);
+          retryApiForm.append("api_secret", FACEPP_API_SECRET);
+          retryApiForm.append("template_file", origin);
+          retryApiForm.append("merge_file", face);
+          retryApiForm.append("merge_rate", "100");
+          apiForm = retryApiForm;
+        }
+      }
+    }
+    
+    if (!faceppRes) {
+      console.error("❌ Face++ API所有重试都失败了", lastError);
+      return NextResponse.json(
+        { 
+          error: "Face++ API连接失败，请稍后重试",
+          details: lastError instanceof Error ? lastError.message : "网络连接错误",
+          processingTime: Date.now() - startTime,
+        },
+        { status: 503 }
+      );
+    }
 
     const processingTime = Date.now() - startTime;
     logDebugInfo("Face++ API response received", {
       status: faceppRes.status,
       statusText: faceppRes.statusText,
       processingTime,
+      contentType: faceppRes.headers.get("content-type"),
     });
 
     if (!faceppRes.ok) {
       // 获取更详细的错误信息
       let errorText = "";
+      let errorData: any = null;
+      
       try {
         errorText = await faceppRes.text();
+        
+        // 尝试解析为JSON获取更多错误信息
+        try {
+          errorData = JSON.parse(errorText);
+        } catch (e) {
+          // 不是JSON，使用原始文本
+        }
       } catch (e) {
         errorText = "Could not read error response";
       }
       
       console.error(`❌ Face++ API HTTP error: ${faceppRes.status}`);
       console.error("Response text:", errorText);
+      console.error("Error data:", errorData);
+
+      // 根据状态码提供更具体的错误信息
+      let userFriendlyError = "Face swap service temporarily unavailable";
+      if (faceppRes.status === 400) {
+        userFriendlyError = "请求参数错误，请检查图片格式和大小";
+      } else if (faceppRes.status === 401) {
+        userFriendlyError = "API认证失败，请检查API密钥配置";
+      } else if (faceppRes.status === 403) {
+        userFriendlyError = "API访问被拒绝，请检查账户余额或权限";
+      } else if (faceppRes.status === 429) {
+        userFriendlyError = "API调用频率过高，请稍后重试";
+      }
 
       return NextResponse.json(
         { 
-          error: "Face swap service temporarily unavailable",
-          details: `HTTP ${faceppRes.status}: ${faceppRes.statusText}`,
+          error: userFriendlyError,
+          details: errorData?.error_message || `HTTP ${faceppRes.status}: ${faceppRes.statusText}`,
           processingTime,
+          debugInfo: {
+            status: faceppRes.status,
+            statusText: faceppRes.statusText,
+            errorText: errorText.substring(0, 200),
+            apiUrl: FACEPP_MERGEFACE_URL,
+          }
         },
         { status: 502 }
       );

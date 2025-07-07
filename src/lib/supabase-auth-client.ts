@@ -1,19 +1,13 @@
 import type { Provider, User } from "@supabase/supabase-js";
-
-import { createBrowserClient } from "@supabase/ssr";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { supabase } from "./supabase-client";
 
-// 创建浏览器端 Supabase 客户端
-export const createBrowserSupabaseClient = () => {
-  return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  );
-};
+// 直接导出已配置的 Supabase 客户端实例 (保持向后兼容)
+export const supabaseClient = supabase;
 
-// 创建并导出 Supabase 客户端实例 (保持向后兼容)
-export const supabaseClient = createBrowserSupabaseClient();
+// 创建浏览器端 Supabase 客户端 (保持向后兼容)
+export const createBrowserSupabaseClient = () => supabase;
 
 // 获取正确的重定向URL
 const getRedirectUrl = (path: string = '/auth/callback') => {
