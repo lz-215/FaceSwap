@@ -239,14 +239,14 @@ async function handleSubscriptionChange(event: Stripe.Event) {
     // 如果没有从客户元数据获取到userId，尝试从订阅元数据中获取
     if (!userId && subscription.metadata?.userId) {
       console.log(`[webhook] [handleSubscriptionChange] 从订阅metadata中获取用户ID: ${subscription.metadata.userId}`);
-      // 验证用户ID是否有效
-      const { data: user, error: userError } = await supabase
-        .from("user")
-        .select("id, email, created_at")
+      // 验证用户ID是否有效 - 检查用户配置是否存在
+      const { data: userProfile, error: userError } = await supabase
+        .from("user_profiles")
+        .select("id")
         .eq("id", subscription.metadata.userId)
         .single();
-      if (user) {
-        userId = user.id;
+      if (userProfile) {
+        userId = userProfile.id;
         console.log(`[webhook] [handleSubscriptionChange] 订阅metadata中的用户ID有效: ${userId}`);
       } else {
         console.warn(`[webhook] [handleSubscriptionChange] 订阅metadata中的用户ID无效: ${subscription.metadata.userId}, 错误:`, userError);
@@ -265,16 +265,16 @@ async function handleSubscriptionChange(event: Stripe.Event) {
       return; // 找不到userId直接返回，不做任何补全
     }
 
-    // 同步 user 表 subscription_status 字段
-    console.log(`[webhook] [handleSubscriptionChange] 开始同步 user.subscription_status: userId=${userId}, status=${subscription.status}`);
+    // 同步 user_profiles 表 subscription_status 字段
+    console.log(`[webhook] [handleSubscriptionChange] 开始同步 user_profiles.subscription_status: userId=${userId}, status=${subscription.status}`);
     const { error: statusUpdateError } = await supabase
-      .from("user")
+      .from("user_profiles")
       .update({ subscription_status: subscription.status, updated_at: new Date().toISOString() })
       .eq("id", userId);
     if (statusUpdateError) {
-      console.error(`[webhook] [handleSubscriptionChange] 同步user表subscription_status失败:`, statusUpdateError);
+      console.error(`[webhook] [handleSubscriptionChange] 同步user_profiles表subscription_status失败:`, statusUpdateError);
     } else {
-      console.log(`[webhook] [handleSubscriptionChange] 已同步user表subscription_status: ${subscription.status}`);
+      console.log(`[webhook] [handleSubscriptionChange] 已同步user_profiles表subscription_status: ${subscription.status}`);
     }
 
     // 只有订阅为 active 时才奖励积分
@@ -304,12 +304,27 @@ async function handleSubscriptionBonusCredits(subscription: Stripe.Subscription,
     let creditsToAdd = 120; // 默认月付积分
     let description = "订阅成功赠送积分";
 
+    console.log(`[webhook] 处理订阅积分分配 - priceAmount: ${amount} cents`);
+
     if (amount === 1690) {
+      // 月付订阅 $16.90
       creditsToAdd = 120;
       description = "月付订阅成功赠送120积分";
-    } else if (amount === 990) {
+      console.log(`[webhook] 识别为月付订阅 ($16.90), 分配 ${creditsToAdd} 积分`);
+    } else if (amount === 11880) {
+      // 年付订阅 $118.80  
       creditsToAdd = 1800;
       description = "年付订阅成功赠送1800积分";
+      console.log(`[webhook] 识别为年付订阅 ($118.80), 分配 ${creditsToAdd} 积分`);
+    } else {
+      console.warn(`[webhook] 未识别的订阅价格: ${amount} cents, 使用默认积分 ${creditsToAdd}`);
+      // 根据间隔类型猜测
+      const interval = subscription.items.data[0]?.price?.recurring?.interval;
+      if (interval === 'year') {
+        creditsToAdd = 1800;
+        description = "年付订阅成功赠送1800积分";
+        console.log(`[webhook] 根据间隔类型(年)推断, 分配 ${creditsToAdd} 积分`);
+      }
     }
 
     // 新增：仅在本周期未写入时插入 subscription_credits
@@ -317,6 +332,8 @@ async function handleSubscriptionBonusCredits(subscription: Stripe.Subscription,
     // Stripe.Subscription 类型声明可能缺失，需用 any 断言
     const startDate = new Date((subscription as any).current_period_start * 1000).toISOString();
     const endDate = new Date((subscription as any).current_period_end * 1000).toISOString();
+
+    console.log(`[webhook] 订阅周期: ${startDate} 到 ${endDate}`);
 
     // 检查本周期是否已存在记录
     const { data: existing, error: checkError } = await supabase
@@ -360,6 +377,8 @@ async function handleSubscriptionBonusCredits(subscription: Stripe.Subscription,
       amount,
       addedBy: "webhook",
     });
+
+    console.log(`[webhook] 订阅积分分配完成: userId=${userId}, credits=${creditsToAdd}`);
   } catch (error) {
     console.error(`[webhook] 订阅奖励积分发放失败:`, error);
     throw error;

@@ -65,7 +65,7 @@ async function checkDatabaseConnection(): Promise<HealthCheckResult[]> {
     
     // 测试数据库连接
     const { data, error } = await supabase
-      .from("user")
+      .from("user_profiles")
       .select("count")
       .limit(1);
     
@@ -161,7 +161,7 @@ export async function systemHealthCheck() {
     
     // 测试数据库连接
     const { data, error } = await supabase
-      .from("user")
+      .from("user_profiles")
       .select("count")
       .limit(1);
     

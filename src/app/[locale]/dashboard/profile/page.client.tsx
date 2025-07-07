@@ -129,17 +129,21 @@ export default function ProfilePageClient() {
               {showRecharge ? (
                 <>
                   <div className="text-destructive text-lg font-bold mb-2">
-                    {t("Payment.recharge", {
-                      defaultMessage: "No images left, please recharge!",
+                    {t("profile.noCreditsLeft", {
+                      defaultMessage: "No credits left!",
+                    })}
+                  </div>
+                  <div className="text-muted-foreground text-sm mb-4 text-center">
+                    {t("profile.subscribeForCredits", {
+                      defaultMessage:
+                        "Subscribe to get more credits and enjoy unlimited features",
                     })}
                   </div>
                   <Button
                     className="bg-primary text-primary-foreground w-full text-lg font-bold rounded-xl py-2 hover:bg-primary/90"
-                    onClick={() => recharge(5)}
+                    onClick={handleSubscribe}
                   >
-                    {t("Payment.rechargeCredits", {
-                      defaultMessage: "Recharge",
-                    })}
+                    {t("profile.subscribe", { defaultMessage: "Subscribe" })}
                   </Button>
                 </>
               ) : (

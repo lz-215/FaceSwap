@@ -123,15 +123,15 @@ export async function POST(request: NextRequest) {
       throw new Error(`获取订阅信息失败: ${subError?.message || '未找到订阅'}`);
     }
 
-    // 验证用户ID
-    const { data: user, error: userError } = await supabase
-      .from('user')
-      .select('id, email')
+    // 验证用户ID - 使用user_profiles表
+    const { data: userProfile, error: userError } = await supabase
+      .from('user_profiles')
+      .select('id, display_name')
       .eq('id', userId)
       .single();
 
-    if (userError || !user) {
-      throw new Error(`验证用户失败: ${userError?.message || '未找到用户'}`);
+    if (userError || !userProfile) {
+      throw new Error(`验证用户失败: ${userError?.message || '未找到用户配置'}`);
     }
 
     switch (action) {

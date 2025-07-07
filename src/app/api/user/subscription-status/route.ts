@@ -12,9 +12,9 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = await createClient();
-    // 直接从 user 表获取订阅状态
+    // 从 user_profiles 表获取订阅状态
     const { data: userRow, error } = await supabase
-      .from("user")
+      .from("user_profiles")
       .select("subscription_status")
       .eq("id", user.id)
       .single();

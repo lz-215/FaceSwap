@@ -15,42 +15,21 @@ import {
 import { Badge } from "~/components/ui/badge";
 import { useToast } from "~/hooks/use-toast";
 import { useSupabaseSession } from "~/lib/supabase-auth-client";
+import { STRIPE_CONFIG, type StripeInterval } from "~/lib/stripe-config";
 
 interface SubscriptionCardsProps {
   locale?: string;
 }
 
-const PLANS = [
-  {
-    id: "monthly",
-    label: {
-      zh: "月付",
-      en: "Monthly",
-    },
-    price: 16.9,
-    credits: 120,
-    priceSuffix: { zh: "/月", en: "/month" },
-    stripeUrl: "https://buy.stripe.com/test_bJebJ30h6gKU6I04fE43S04",
-    highlight: false,
-    badge: null,
-  },
-  {
-    id: "yearly",
-    label: {
-      zh: "年付",
-      en: "Yearly",
-    },
-    price: 118.8,
-    credits: 1800,
-    priceSuffix: { zh: "/年", en: "/year" },
-    stripeUrl: "https://buy.stripe.com/test_6oU14pfc07ak0jCbI643S05",
-    highlight: true,
-    badge: {
-      zh: "最划算",
-      en: "Best Value",
-    },
-  },
-];
+interface CheckoutResponse {
+  url?: string;
+  sessionId?: string;
+  customerId?: string;
+  error?: string;
+}
+
+// 将配置转换为数组格式以便于渲染
+const PLANS = Object.values(STRIPE_CONFIG.PLANS);
 
 export function SubscriptionCards({ locale = "en" }: SubscriptionCardsProps) {
   const [loadingId, setLoadingId] = useState<string | null>(null);
@@ -65,13 +44,56 @@ export function SubscriptionCards({ locale = "en" }: SubscriptionCardsProps) {
     }).format(price);
   };
 
-  const handleSubscribe = (planId: string, url: string) => {
+  const handleSubscribe = async (
+    planId: string,
+    priceId: string,
+    interval: StripeInterval
+  ) => {
     if (!user) {
       router.push("/auth/sign-in");
       return;
     }
+
     setLoadingId(planId);
-    window.location.href = url;
+
+    try {
+      // 调用checkout API创建支付会话
+      const response = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          priceId,
+          interval,
+        }),
+      });
+
+      const data = (await response.json()) as CheckoutResponse;
+
+      if (!response.ok) {
+        throw new Error(data.error || "创建支付会话失败");
+      }
+
+      if (data.url) {
+        // 跳转到Stripe Checkout页面
+        window.location.href = data.url;
+      } else {
+        throw new Error("未收到支付链接");
+      }
+    } catch (error) {
+      console.error("订阅失败:", error);
+      toast({
+        title: locale === "zh" ? "订阅失败" : "Subscription Failed",
+        description:
+          locale === "zh"
+            ? "创建支付会话失败，请稍后重试"
+            : "Failed to create payment session, please try again",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingId(null);
+    }
   };
 
   return (
@@ -103,12 +125,12 @@ export function SubscriptionCards({ locale = "en" }: SubscriptionCardsProps) {
                 </div>
               </div>
               <CardTitle className="text-2xl font-bold mb-1">
-                {locale === "zh" ? "积分充值" : "Credits Package"}
+                {locale === "zh" ? "订阅服务" : "Subscription Plan"}
               </CardTitle>
               <CardDescription className="text-sm mt-1 mb-1">
                 {locale === "zh"
-                  ? "获取积分，畅享换脸功能"
-                  : "Get credits for unlimited face swap features"}
+                  ? "订阅解锁所有功能"
+                  : "Subscribe to unlock all features"}
               </CardDescription>
               <div className="mt-2">
                 <div className="flex items-baseline justify-center">
@@ -194,7 +216,9 @@ export function SubscriptionCards({ locale = "en" }: SubscriptionCardsProps) {
             </CardContent>
             <CardFooter className="pt-3">
               <Button
-                onClick={() => handleSubscribe(plan.id, plan.stripeUrl)}
+                onClick={() =>
+                  handleSubscribe(plan.id, plan.priceId, plan.interval)
+                }
                 disabled={loadingId === plan.id}
                 className="w-full bg-primary hover:bg-primary/90 text-white py-2 text-sm"
                 size="lg"

@@ -38,23 +38,28 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient();
 
-    // 3. 检查是否已有 Stripe 客户
-    const { data: userRecord } = await supabase
-      .from("user")
-      .select("customer_id, email, name")
+    // 3. 检查是否已有 Stripe 客户 - 从用户配置和认证信息获取
+    const { data: userProfile } = await supabase
+      .from("user_profiles")
+      .select("customer_id, display_name")
       .eq("id", user.id)
       .single();
 
-    if (!userRecord) {
-      return NextResponse.json({ error: "用户信息不存在", success: false }, { status: 400 });
+    // 获取用户邮箱（来自auth.users）
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    const userEmail = authUser?.email;
+    const userName = name || userProfile?.display_name || authUser?.user_metadata?.name || userEmail;
+
+    if (!userEmail) {
+      return NextResponse.json({ error: "无法获取用户邮箱", success: false }, { status: 400 });
     }
 
     let customer: any;
-    let customerId = userRecord?.customer_id;
+    let customerId = userProfile?.customer_id;
     if (!customerId) {
       customer = await stripe.customers.create({
-        email: email || userRecord.email,
-        name: name || userRecord.name || userRecord.email,
+        email: email || userEmail,
+        name: userName,
         metadata: {
           userId: user.id,
           createdFrom: "subscription_api",
@@ -63,7 +68,7 @@ export async function POST(request: NextRequest) {
         },
       });
       await supabase
-        .from("user")
+        .from("user_profiles")
         .update({ customer_id: customer.id, updated_at: new Date().toISOString() })
         .eq("id", user.id);
       customerId = customer.id;
@@ -71,8 +76,8 @@ export async function POST(request: NextRequest) {
       customer = await stripe.customers.retrieve(customerId);
       if ((customer as any).deleted) {
         customer = await stripe.customers.create({
-          email: email || userRecord.email,
-          name: name || userRecord.name || userRecord.email,
+          email: email || userEmail,
+          name: userName,
           metadata: {
             userId: user.id,
             createdFrom: "subscription_api",
@@ -81,15 +86,15 @@ export async function POST(request: NextRequest) {
           },
         });
         await supabase
-          .from("user")
+          .from("user_profiles")
           .update({ customer_id: customer.id, updated_at: new Date().toISOString() })
           .eq("id", user.id);
         customerId = customer.id;
       } else {
         // 更新现有客户的metadata
         customer = await stripe.customers.update(customerId, {
-          email: email || userRecord.email,
-          name: name || userRecord.name || userRecord.email,
+          email: email || userEmail,
+          name: userName,
           metadata: {
             ...(customer as any).metadata,
             userId: user.id,

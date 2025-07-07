@@ -13,17 +13,17 @@ export async function createCustomer(
   try {
     const supabase = await createClient();
 
-    // 先查 user 表是否已有 customer_id
-    const { data: user, error: userError } = await supabase
-      .from("user")
+    // 先查 user_profiles 表是否已有 customer_id
+    const { data: userProfile, error: userError } = await supabase
+      .from("user_profiles")
       .select("customer_id")
       .eq("id", userId)
       .single();
 
-    if (user?.customer_id) {
+    if (userProfile?.customer_id) {
       // 检查 Stripe 客户是否存在
       try {
-        const customer = await stripe.customers.retrieve(user.customer_id);
+        const customer = await stripe.customers.retrieve(userProfile.customer_id);
         if (!(customer as any).deleted) {
           return customer;
         }
@@ -48,13 +48,13 @@ export async function createCustomer(
       });
     }
 
-    // 写入 user 表
+    // 写入 user_profiles 表
     const { error: updateError } = await supabase
-      .from("user")
+      .from("user_profiles")
       .update({ customer_id: customer.id, updated_at: new Date().toISOString() })
       .eq("id", userId);
     if (updateError) {
-      console.error("保存客户信息到 user 表失败:", updateError);
+      console.error("保存客户信息到 user_profiles 表失败:", updateError);
       throw updateError;
     }
 
@@ -98,23 +98,27 @@ async function getCheckoutUrl(
     let customer = await getCustomerByUserId(userId);
 
     if (!customer) {
-      // 获取用户信息
-      const { data: userInfo } = await supabase
-        .from("user")
-        .select("email, name")
+      // 获取用户信息 - 从auth.users获取email，从user_profiles获取display_name
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      const { data: userProfile } = await supabase
+        .from("user_profiles")
+        .select("display_name")
         .eq("id", userId)
         .single();
 
-      if (!userInfo || !userInfo.email) {
-        throw new Error("用户信息不存在");
+      const userEmail = authUser?.email;
+      const userName = userProfile?.display_name || authUser?.user_metadata?.name || userEmail;
+
+      if (!userEmail) {
+        throw new Error("用户邮箱信息不存在");
       }
 
       await createCustomer(
         userId,
-        userInfo.email,
-        userInfo.name,
+        userEmail,
+        userName,
       );
-      // 重新查数据库，确保user表有customer_id
+      // 重新查数据库，确保user_profiles表有customer_id
       customer = await getCustomerByUserId(userId);
       if (!customer) {
         throw new Error("Stripe客户创建失败");
@@ -148,8 +152,8 @@ async function getCheckoutUrl(
 export async function getCustomerByUserId(userId: string) {
   try {
     const supabase = await createClient();
-    const { data: user, error } = await supabase
-      .from("user")
+    const { data: userProfile, error } = await supabase
+      .from("user_profiles")
       .select("customer_id")
       .eq("id", userId)
       .single();
@@ -157,8 +161,8 @@ export async function getCustomerByUserId(userId: string) {
       console.error("获取客户信息失败:", error);
       return null;
     }
-    if (!user?.customer_id) return null;
-    return { customer_id: user.customer_id };
+    if (!userProfile?.customer_id) return null;
+    return { customer_id: userProfile.customer_id };
   } catch (error) {
     console.error("获取客户信息失败:", error);
     return null;
