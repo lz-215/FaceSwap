@@ -67,7 +67,7 @@ export async function GET() {
 
       // 3. 解析响应
       try {
-        const parsedResponse = JSON.parse(responseText);
+        const parsedResponse = JSON.parse(responseText) as { error_message?: string; [key: string]: any };
         
         if (parsedResponse.error_message) {
           diagnostics.tests.push({

@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
           },
         ],
         mode: "subscription",
-        success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/billing?success=true`,
+        success_url: `${process.env.NEXT_PUBLIC_APP_URL}/face-swap?success=true`,
         cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/pricing?canceled=true`,
         metadata: {
           userId: user.id,

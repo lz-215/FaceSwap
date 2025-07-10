@@ -45,19 +45,19 @@ export async function consumeCreditsWithTransaction(
     throw updateError;
   }
 
-  // 记录交易
-  const transactionId = createId();
-  const { error: transactionError } = await supabase
+  // 记录交易 - 让数据库自动生成UUID
+  const { data: transactionData, error: transactionError } = await supabase
     .from("credit_transaction")
     .insert({
-      id: transactionId,
       user_id: userId,
       amount: -amount,
       balance_after: newBalance,
       type: "consumption",
       description: description || `消费${amount}积分`,
       created_at: new Date().toISOString(),
-    });
+    })
+    .select()
+    .single();
   if (transactionError) {
     throw transactionError;
   }
@@ -66,12 +66,12 @@ export async function consumeCreditsWithTransaction(
     success: true,
     balance: newBalance,
     consumed: amount,
-    transactionId,
+    transactionId: transactionData.id,
   };
 }
 
 /**
- * 添加奖励积分
+ * 添加奖励积分 - 修复版本，使用数据库函数避免RLS问题
  */
 export async function addBonusCreditsWithTransaction(
   userId: string,
@@ -80,61 +80,39 @@ export async function addBonusCreditsWithTransaction(
   metadata: Record<string, any> = {},
 ) {
   const supabase = await createClient();
-  // 查询或创建余额
-  let { data: userBalance } = await supabase
-    .from("user_credit_balance")
-    .select("*")
-    .eq("user_id", userId)
-    .single();
-  if (!userBalance) {
-    const { data: newBalance, error: insertError } = await supabase
-      .from("user_credit_balance")
-      .insert({
-        id: createId(),
-        user_id: userId,
-        balance: amount,
-        total_consumed: 0,
-        total_recharged: 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .select()
-      .single();
-    if (insertError) throw insertError;
-    userBalance = newBalance;
-  } else {
-    const newBalance = userBalance.balance + amount;
-    const { error: updateError } = await supabase
-      .from("user_credit_balance")
-      .update({
-        balance: newBalance,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", userBalance.id);
-    if (updateError) throw updateError;
-    userBalance.balance = newBalance;
-  }
-  // 记录交易
-  const transactionId = createId();
-  const { error: transactionError } = await supabase
-    .from("credit_transaction")
-    .insert({
-      id: transactionId,
-      user_id: userId,
-      amount: amount,
-      balance_after: userBalance.balance,
-      type: "bonus",
-      description: reason,
-      metadata: JSON.stringify(metadata),
-      created_at: new Date().toISOString(),
+  
+  console.log(`[addBonusCreditsWithTransaction] 开始为用户 ${userId} 添加 ${amount} 积分，原因: ${reason}`);
+  
+  try {
+    const { data: result, error } = await supabase.rpc('add_bonus_credits_v2', {
+      p_user_id: userId,
+      bonus_amount: amount,
+      bonus_reason: reason,
+      bonus_metadata: metadata
     });
-  if (transactionError) throw transactionError;
-  return {
-    success: true,
-    balance: userBalance.balance,
-    added: amount,
-    transactionId,
-  };
+
+    if (error) {
+      console.error(`[addBonusCreditsWithTransaction] 数据库函数 add_bonus_credits_v2 调用失败:`, error);
+      throw new Error(`数据库函数调用失败: ${error.message}`);
+    }
+
+    if (!result.success) {
+      console.error(`[addBonusCreditsWithTransaction] 奖励积分添加失败，函数返回:`, result);
+      throw new Error(result.message || '奖励积分添加失败，但未返回具体错误信息');
+    }
+
+    console.log(`[addBonusCreditsWithTransaction] 成功为用户 ${userId} 添加 ${amount} 积分，新余额: ${result.balanceAfter}`);
+
+    return {
+      success: true,
+      balance: result.balanceAfter,
+      added: amount,
+      transactionId: result.transactionId || 'unknown',
+    };
+  } catch (error) {
+    console.error(`[addBonusCreditsWithTransaction] 为用户 ${userId} 添加奖励积分时发生未知错误:`, error);
+    throw error; // 将错误继续向上抛出
+  }
 }
 
 /**

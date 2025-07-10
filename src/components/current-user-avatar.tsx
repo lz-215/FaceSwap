@@ -3,13 +3,13 @@
 import { useCurrentUserImage } from "~/lib/hooks/use-current-user-image";
 import { useCurrentUserName } from "~/lib/hooks/use-current-user-name";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
-import { useSubscription } from "~/lib/hooks/use-subscription";
+import { useSubscriptionStatus } from "~/lib/hooks/use-subscription-status";
 import React from "react";
 
 export const CurrentUserAvatar = () => {
   const profileImage = useCurrentUserImage();
   const name = useCurrentUserName();
-  const { hasActiveSubscription } = useSubscription();
+  const { isActive } = useSubscriptionStatus();
   const initials = name
     ?.split(" ")
     ?.map((word) => word[0])
@@ -19,7 +19,7 @@ export const CurrentUserAvatar = () => {
   // 添加日志，排查会员头像未刷新的原因
   console.log(
     "[CurrentUserAvatar] hasActiveSubscription:",
-    hasActiveSubscription,
+    isActive,
     "profileImage:",
     profileImage,
     "name:",
@@ -27,7 +27,7 @@ export const CurrentUserAvatar = () => {
   );
 
   // 添加流光动画样式
-  const glowClass = hasActiveSubscription
+  const glowClass = isActive
     ? "ring-4 ring-yellow-400 w-12 h-12 md:w-16 md:h-16 animate-glow"
     : "w-12 h-12 md:w-16 md:h-16";
 
@@ -56,12 +56,12 @@ export const CurrentUserAvatar = () => {
         {profileImage && <AvatarImage alt={initials} src={profileImage} />}
         <AvatarFallback>{initials}</AvatarFallback>
       </Avatar>
-      {hasActiveSubscription && (
+      {isActive && (
         <span
           className="absolute -top-3 left-1/2 -translate-x-1/2 z-10"
           aria-label="订阅皇冠"
         >
-          {/* 简单皇冠SVG，可替换为更精美的图标 */}
+          {/* 皇冠SVG */}
           <svg
             width="28"
             height="20"
