@@ -695,6 +695,8 @@ async function updateSubscriptionCredits(subscription: Stripe.Subscription, user
     start_date: startDate,
     end_date: endDate,
     status: 'active',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
   });
 
   // 创建新的订阅积分记录
@@ -706,6 +708,8 @@ async function updateSubscriptionCredits(subscription: Stripe.Subscription, user
     start_date: startDate,
     end_date: endDate,
     status: 'active',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
   });
 
   if (subscriptionCreditsError) {
