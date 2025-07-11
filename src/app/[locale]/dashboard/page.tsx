@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { useSupabaseSession } from "~/lib/supabase-auth-client";
 import { useTranslations } from "next-intl";
-import { useCreditsV2 } from "~/lib/hooks/use-credits-v2";
+import { useCredits } from "~/lib/hooks/useCredits";
 import { CreditTransactions } from "~/components/payment/credit-transactions";
 import { CurrentUserAvatar } from "~/components/current-user-avatar";
 import { useSubscription } from "~/lib/hooks/use-subscription";
@@ -30,15 +30,15 @@ export default function DashboardPage() {
   const tHistory = useTranslations("History");
   const [copied, setCopied] = useState(false);
 
-  // 使用真实的积分系统
+  // 使用新的积分系统
   const {
     balance,
     totalRecharged,
     totalConsumed,
     isLoading: creditsLoading,
     error: creditsError,
-    fetchCredits,
-  } = useCreditsV2();
+    refreshCredits,
+  } = useCredits();
 
   const {
     hasActiveSubscription,
@@ -49,9 +49,9 @@ export default function DashboardPage() {
   // 刷新积分数据
   useEffect(() => {
     if (user) {
-      fetchCredits();
+      refreshCredits();
     }
-  }, [user, fetchCredits]);
+  }, [user, refreshCredits]);
 
   if (loading) {
     return (
@@ -352,6 +352,11 @@ export default function DashboardPage() {
               )}
             </CardContent>
           </Card>
+        </div>
+
+        {/* Credit Transactions Section */}
+        <div className="mt-12">
+          <CreditTransactions />
         </div>
       </div>
     </div>

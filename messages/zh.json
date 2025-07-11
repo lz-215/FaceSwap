@@ -461,6 +461,13 @@
     "resultAlt": "换脸结果",
     "faceSwapResult": "换脸结果"
   },
+  "Credits": {
+    "transactionHistory": "交易历史",
+    "date": "日期",
+    "description": "描述",
+    "amount": "数量",
+    "loading": "加载中..."
+  },
   "FaceSwapTypes": {
     "title": "革命性的照片换脸工具，适用于各种场合",
     "desc": "让您的照片焕发生机，实现无缝换脸。不论是娱乐、创意还是特殊项目，Swapify.AI都能让您轻松替换照片中的人脸。上传图片，轻松换脸，几秒钟即可获得逼真高质量的效果。非常适合制作有趣的编辑或与朋友分享欢乐！",

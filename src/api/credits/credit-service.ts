@@ -7,7 +7,7 @@ import type { UserCreditBalance, CreditTransaction } from "~/lib/database-types"
  */
 
 /**
- * 安全的积分消费
+ * 安全的积分消费 - 使用数据库函数实现原子操作
  */
 export async function consumeCreditsWithTransaction(
   userId: string,
@@ -15,58 +15,33 @@ export async function consumeCreditsWithTransaction(
   description?: string,
 ) {
   const supabase = await createClient();
-  // 查询余额
-  const { data: userBalance } = await supabase
-    .from("user_credit_balance")
-    .select("*")
-    .eq("user_id", userId)
-    .single();
+  
+  const { data: result, error } = await supabase.rpc('consume_credits_atomic', {
+    p_user_id: userId,
+    p_amount: amount,
+    p_description: description || `消费${amount}积分`,
+  });
 
-  if (!userBalance || userBalance.balance < amount) {
+  if (error) {
+    console.error(`[consumeCredits] 数据库函数 consume_credits_atomic 调用失败:`, error);
+    throw new Error(`数据库函数调用失败: ${error.message}`);
+  }
+
+  if (!result.success) {
+    console.error(`[consumeCredits] 积分消费失败，函数返回:`, result);
     return {
       success: false,
-      message: "积分不足",
-      balance: userBalance?.balance ?? 0,
-      required: amount,
+      message: result.message || "积分消费失败",
+      balance: result.balance ?? 0,
+      required: result.required ?? amount,
     };
-  }
-
-  // 更新余额
-  const newBalance = userBalance.balance - amount;
-  const { error: updateError } = await supabase
-    .from("user_credit_balance")
-    .update({
-      balance: newBalance,
-      total_consumed: userBalance.total_consumed + amount,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", userBalance.id);
-  if (updateError) {
-    throw updateError;
-  }
-
-  // 记录交易 - 让数据库自动生成UUID
-  const { data: transactionData, error: transactionError } = await supabase
-    .from("credit_transaction")
-    .insert({
-      user_id: userId,
-      amount: -amount,
-      balance_after: newBalance,
-      type: "consumption",
-      description: description || `消费${amount}积分`,
-      created_at: new Date().toISOString(),
-    })
-    .select()
-    .single();
-  if (transactionError) {
-    throw transactionError;
   }
 
   return {
     success: true,
-    balance: newBalance,
-    consumed: amount,
-    transactionId: transactionData.id,
+    balance: result.balanceAfter,
+    consumed: result.amountConsumed,
+    transactionId: result.transactionId,
   };
 }
 

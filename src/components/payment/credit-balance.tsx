@@ -2,7 +2,7 @@
 
 import { CreditCard } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useSimpleCredits } from "~/lib/hooks/use-simple-credits";
+import { useCredits } from "~/lib/hooks/useCredits";
 import { cn } from "~/lib/utils";
 
 interface CreditBalanceProps {
@@ -11,7 +11,7 @@ interface CreditBalanceProps {
 
 export function CreditBalance({ className }: CreditBalanceProps) {
   const t = useTranslations("Navigation");
-  const { balance, isLoading } = useSimpleCredits();
+  const { balance, isLoading } = useCredits();
 
   return (
     <div

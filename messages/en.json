@@ -518,4 +518,12 @@
   "delete": "Delete",
   "resultAlt": "Face swap result",
   "faceSwapResult": "Result"
+  },
+  "Credits": {
+    "transactionHistory": "Transaction History",
+    "date": "Date",
+    "description": "Description",
+    "amount": "Amount",
+    "loading": "Loading..."
+  }
 } 
