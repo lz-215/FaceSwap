@@ -3,7 +3,7 @@ import { createClient } from "~/lib/supabase/server";
 import { getUserCreditBalance } from "~/api/credits/credit-service";
 
 export async function GET() {
-  const supabase = createClient();
+  const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();

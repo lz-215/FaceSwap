@@ -653,8 +653,6 @@ async function handleInactiveSubscription(
  */
 async function updateSubscriptionCredits(subscription: Stripe.Subscription, userId: string) {
   const supabase = await createClient();
-
-  // 1. 打印收到的原始订阅对象
   console.log("[credits] 收到订阅对象:", JSON.stringify(subscription, null, 2));
 
   // 安全获取 items.data
@@ -666,12 +664,8 @@ async function updateSubscriptionCredits(subscription: Stripe.Subscription, user
   const priceAmount = items[0].price.unit_amount;
   const creditsToAdd = priceAmount === 1690 ? 120 : priceAmount === 11880 ? 1800 : 120;
 
-  // 统一获取周期时间戳
-  const { period_start, period_end } = await getSubscriptionPeriodTimestamps(subscription);
-  if (!period_start || !period_end) return;
-
-  const startDate = new Date(period_start * 1000).toISOString();
-  const endDate = new Date(period_end * 1000).toISOString();
+  // 用固定周期计算 start_date 和 end_date
+  const { startDate, endDate } = calculateFixedPeriodDates(subscription);
 
   // 检查是否已存在该订阅期间的积分记录
   const { data: existingCredits } = await supabase
@@ -686,7 +680,7 @@ async function updateSubscriptionCredits(subscription: Stripe.Subscription, user
     return;
   }
 
-  // 5. 写入前打印
+  // 写入 subscription_credits
   console.log("[credits] 即将写入 subscription_credits：", {
     user_id: userId,
     subscription_id: subscription.id,
@@ -695,11 +689,8 @@ async function updateSubscriptionCredits(subscription: Stripe.Subscription, user
     start_date: startDate,
     end_date: endDate,
     status: 'active',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
   });
 
-  // 创建新的订阅积分记录
   const { error: subscriptionCreditsError } = await supabase.from('subscription_credits').insert({
     user_id: userId,
     subscription_id: subscription.id,
@@ -708,8 +699,6 @@ async function updateSubscriptionCredits(subscription: Stripe.Subscription, user
     start_date: startDate,
     end_date: endDate,
     status: 'active',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
   });
 
   if (subscriptionCreditsError) {
@@ -758,7 +747,6 @@ async function recalculateUserBalance(userId: string) {
  * 处理订阅积分发放
  */
 async function handleSubscriptionBonusCredits(subscription: Stripe.Subscription, userId: string) {
-  // 安全获取 items.data
   const items = subscription.items && Array.isArray(subscription.items.data) ? subscription.items.data : [];
   if (!items[0] || !items[0].price) {
     console.error('[webhook] subscription.items.data 缺失或无 price，无法获取价格信息', subscription);
@@ -766,7 +754,7 @@ async function handleSubscriptionBonusCredits(subscription: Stripe.Subscription,
   }
   const priceAmount = items[0].price.unit_amount;
   const amount = typeof priceAmount === 'number' ? priceAmount : null;
-  let creditsToAdd = 120; // 默认月付积分
+  let creditsToAdd = 120;
   let description = "订阅成功赠送积分";
 
   console.log(`[webhook] 处理订阅积分分配 - priceAmount: ${amount} cents`);
@@ -792,15 +780,13 @@ async function handleSubscriptionBonusCredits(subscription: Stripe.Subscription,
   try {
     // 使用数据库函数发放积分
     console.log(`[webhook] 开始为用户 ${userId} 发放 ${creditsToAdd} 积分`);
-    
     const result = await addBonusCreditsWithTransaction(userId, creditsToAdd, description, {
       subscriptionId: subscription.id,
-      priceId: subscription.items.data[0]?.price.id,
+      priceId: items[0].price.id,
       amount: amount,
       type: "subscription_bonus",
       webhookEventType: "subscription_activated",
     });
-
     console.log(`[webhook] 订阅积分发放成功:`, {
       userId,
       subscriptionId: subscription.id,
@@ -808,16 +794,9 @@ async function handleSubscriptionBonusCredits(subscription: Stripe.Subscription,
       newBalance: result.balance,
       transactionId: result.transactionId,
     });
-
     // 可选：记录订阅积分到 subscription_credits 表
     const supabase = await createClient();
-    // 统一获取周期时间戳
-    const { period_start, period_end } = await getSubscriptionPeriodTimestamps(subscription);
-    if (!period_start || !period_end) return;
-    
-    const startDate = new Date(period_start * 1000).toISOString();
-    const endDate = new Date(period_end * 1000).toISOString();
-    
+    const { startDate, endDate } = calculateFixedPeriodDates(subscription);
     const { error: subscriptionCreditsError } = await supabase.from('subscription_credits').insert({
       user_id: userId,
       subscription_id: subscription.id,
@@ -827,7 +806,6 @@ async function handleSubscriptionBonusCredits(subscription: Stripe.Subscription,
       end_date: endDate,
       status: 'active',
     });
-
     if (subscriptionCreditsError) {
       console.error(`[webhook] 记录订阅积分失败，但不影响积分发放:`, subscriptionCreditsError);
     } else {
@@ -837,6 +815,21 @@ async function handleSubscriptionBonusCredits(subscription: Stripe.Subscription,
     console.error(`[webhook] 订阅积分发放失败:`, error);
     throw new Error(`订阅积分发放失败: ${error instanceof Error ? error.message : '未知错误'}`);
   }
+}
+
+function calculateFixedPeriodDates(subscription: any) {
+  const created = subscription.created;
+  const items = subscription.items && Array.isArray(subscription.items.data) ? subscription.items.data : [];
+  const interval = items[0]?.price?.recurring?.interval;
+  const startDate = new Date(created * 1000);
+  let endDate;
+  if (interval === 'year') {
+    endDate = new Date(startDate.getTime() + 365 * 24 * 60 * 60 * 1000);
+  } else {
+    // 默认按月
+    endDate = new Date(startDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+  }
+  return { startDate: startDate.toISOString(), endDate: endDate.toISOString() };
 }
 
 // 工具函数：安全获取周期时间戳

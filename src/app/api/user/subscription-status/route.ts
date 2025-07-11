@@ -12,14 +12,16 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = await createClient();
-    // 从 user_profiles 表获取订阅状态
-    const { data: userRow, error } = await supabase
-      .from("user_profiles")
-      .select("subscription_status")
-      .eq("id", user.id)
+    // 从 subscription_status_monitor 视图获取 stripe_subscription_status
+    const { data: monitorRow, error } = await supabase
+      .from("subscription_status_monitor")
+      .select("stripe_subscription_status")
+      .eq("user_id", user.id)
+      .order("end_date", { ascending: false })
+      .limit(1)
       .single();
 
-    console.log('[subscription-status] 查到的 userRow:', userRow);
+    console.log('[subscription-status] 查到的 monitorRow:', monitorRow);
 
     if (error) {
       console.error("获取订阅状态失败:", error);
@@ -29,7 +31,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const status = userRow?.subscription_status || null;
+    const status = monitorRow?.stripe_subscription_status || null;
     return NextResponse.json({
       hasActiveSubscription: status === 'active',
       status,

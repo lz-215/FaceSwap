@@ -517,8 +517,7 @@
   },
   "delete": "Delete",
   "resultAlt": "Face swap result",
-  "faceSwapResult": "Result"
-  },
+  "faceSwapResult": "Result",
   "Credits": {
     "transactionHistory": "Transaction History",
     "date": "Date",

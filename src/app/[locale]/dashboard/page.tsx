@@ -22,6 +22,7 @@ import { useCredits } from "~/lib/hooks/useCredits";
 import { CreditTransactions } from "~/components/payment/credit-transactions";
 import { CurrentUserAvatar } from "~/components/current-user-avatar";
 import { useSubscription } from "~/lib/hooks/use-subscription";
+import { useSubscriptionStatus } from "~/lib/hooks/use-subscription-status";
 
 export default function DashboardPage() {
   const { user, loading } = useSupabaseSession();
@@ -40,11 +41,8 @@ export default function DashboardPage() {
     refreshCredits,
   } = useCredits();
 
-  const {
-    hasActiveSubscription,
-    isLoading: subscriptionLoading,
-    subscriptions,
-  } = useSubscription();
+  const { isActive: hasActiveSubscription, isLoading: subscriptionLoading } =
+    useSubscriptionStatus();
 
   // 刷新积分数据
   useEffect(() => {

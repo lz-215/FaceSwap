@@ -4,6 +4,7 @@ import {
   useCallback,
 } from "react";
 import { useAuth } from "./use-auth";
+import { supabaseClient } from "~/lib/supabase-auth-client";
 
 interface CreditsState {
   balance: number;
@@ -12,6 +13,16 @@ interface CreditsState {
   transactions: any[]; // Replace 'any' with a proper type
   isLoading: boolean;
   error: string | null;
+}
+
+// Add types for API responses
+interface BalanceApiResponse {
+  balance: number;
+  totalRecharged: number;
+  totalConsumed: number;
+}
+interface TransactionsApiResponse {
+  transactions: any[]; // Replace 'any' with a proper type if available
 }
 
 export function useCredits() {
@@ -34,26 +45,17 @@ export function useCredits() {
     setCredits((prev) => ({ ...prev, isLoading: true, error: null }));
 
     try {
-      const [balanceRes, transactionsRes] = await Promise.all([
-        fetch("/api/credits/balance"),
-        fetch("/api/credits/transactions"),
-      ]);
-
-      if (!balanceRes.ok || !transactionsRes.ok) {
-        throw new Error("Failed to fetch credits data");
-      }
-
-      const balanceData = await balanceRes.json();
-      const transactionsData = await transactionsRes.json();
-
-      setCredits({
-        balance: balanceData.balance,
-        totalRecharged: balanceData.totalRecharged,
-        totalConsumed: balanceData.totalConsumed,
-        transactions: transactionsData.transactions,
+      // 直接调用 Supabase RPC，自动初始化新用户积分
+      const { data, error } = await supabaseClient.rpc('get_user_credits_v2', { p_user_id: user.id });
+      if (error) throw error;
+      setCredits((prev) => ({
+        ...prev,
+        balance: data.balance || 0,
+        totalRecharged: data.totalRecharged || 0,
+        totalConsumed: data.totalConsumed || 0,
         isLoading: false,
         error: null,
-      });
+      }));
     } catch (error) {
       console.error("Failed to fetch credits:", error);
       setCredits({
@@ -79,7 +81,7 @@ export function useCredits() {
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
+      const errorData = (await response.json()) as { message?: string };
       throw new Error(errorData.message || "Failed to consume credits");
     }
 
@@ -88,6 +90,28 @@ export function useCredits() {
     // Refresh credits after consumption
     await fetchCredits();
 
+    return result;
+  };
+
+  const addBonusCredits = async (amount: number, reason: string, metadata: Record<string, any> = {}) => {
+    if (!user) {
+      throw new Error("User not authenticated");
+    }
+
+    const response = await fetch("/api/credits/bonus", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amount, reason, metadata }),
+    });
+
+    if (!response.ok) {
+      const errorData = (await response.json()) as { message?: string };
+      throw new Error(errorData.message || "Failed to add bonus credits");
+    }
+
+    const result = await response.json();
+    // Refresh credits after bonus
+    await fetchCredits();
     return result;
   };
 
@@ -100,6 +124,7 @@ export function useCredits() {
   return {
     ...credits,
     consumeCredits,
+    addBonusCredits,
     refreshCredits: fetchCredits,
   };
 }

@@ -95,11 +95,7 @@ export async function addBonusCreditsWithTransaction(
  */
 export async function getUserCreditBalance(userId: string) {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("user_credit_balance")
-    .select("*")
-    .eq("user_id", userId)
-    .single();
+  const { data, error } = await supabase.rpc('get_or_create_user_credit_balance', { p_user_id: userId });
   if (error) return null;
   return data;
 }

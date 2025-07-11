@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "~/lib/supabase/server";
-import { getUserCreditTransactions } from "~/api/credits/credit-service";
 
-export async function GET(request: Request) {
-  const supabase = createClient();
+export async function GET() {
+  const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -12,11 +11,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { searchParams } = new URL(request.url);
-  const limit = parseInt(searchParams.get("limit") || "10", 10);
-  const offset = parseInt(searchParams.get("offset") || "0", 10);
+  const { data: transactions, error } = await supabase
+    .from("credit_transaction")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false });
 
-  const transactions = await getUserCreditTransactions(user.id, limit, offset);
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
   return NextResponse.json({ transactions });
 }

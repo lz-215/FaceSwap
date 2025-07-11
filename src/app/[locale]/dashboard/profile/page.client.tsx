@@ -10,6 +10,7 @@ import {
 } from "~/lib/supabase-auth-client";
 import { useRouter } from "next/navigation";
 import { CurrentUserAvatar } from "~/components/current-user-avatar";
+import { useSubscriptionStatus } from "~/lib/hooks/use-subscription-status";
 
 // 全局图片数状态（可用context或localStorage实现，这里用localStorage简单演示）
 function useImageCount() {
@@ -42,9 +43,7 @@ export default function ProfilePageClient() {
   const accountId = user?.id || "-";
   const accountEmail = user?.email || "-";
   const userName = "q az";
-  const [isSubscribed, setIsSubscribed] = useState(
-    () => localStorage.getItem("isSubscribed") === "true"
-  );
+  const { isActive: isSubscribed, isLoading: subscriptionLoading } = useSubscriptionStatus();
 
   // 续费提醒
   const showRecharge = count === 0;
@@ -66,9 +65,8 @@ export default function ProfilePageClient() {
   // 监听订阅状态（假设/pricing订阅成功后会设置localStorage）
   useEffect(() => {
     const checkSub = () =>
-      setIsSubscribed(localStorage.getItem("isSubscribed") === "true");
-    window.addEventListener("storage", checkSub);
-    return () => window.removeEventListener("storage", checkSub);
+      // setIsSubscribed(localStorage.getItem("isSubscribed") === "true"); // 移除 localStorage 相关 isSubscribed 逻辑
+      // 移除 localStorage 相关 isSubscribed 逻辑
   }, []);
 
   return (

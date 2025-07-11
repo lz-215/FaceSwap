@@ -14,7 +14,7 @@ RETURNS user_credit_balance
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
-AS $
+AS $$
 DECLARE
   v_balance_record user_credit_balance;
 BEGIN
@@ -54,7 +54,7 @@ EXCEPTION
     
     RETURN v_balance_record;
 END;
-$;
+$$;
 
 -- 创建新的原子化积分消费函数
 CREATE OR REPLACE FUNCTION consume_credits_atomic(
@@ -66,7 +66,7 @@ RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
-AS $
+AS $$
 DECLARE
   v_balance_record user_credit_balance;
   v_new_balance INTEGER;
@@ -144,7 +144,7 @@ EXCEPTION
       'error', SQLERRM
     );
 END;
-$;
+$$;
 
 -- 创建新的原子化奖励积分函数
 CREATE OR REPLACE FUNCTION add_bonus_credits_v2(
@@ -157,7 +157,7 @@ RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
-AS $
+AS $$
 DECLARE
   v_balance_record user_credit_balance;
   v_new_balance INTEGER;
@@ -227,7 +227,7 @@ EXCEPTION
       'error', SQLERRM
     );
 END;
-$;
+$$;
 
 COMMIT;
 
