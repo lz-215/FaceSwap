@@ -7,7 +7,7 @@ import { NextResponse } from "next/server";
 
 import { addBonusCreditsWithTransaction } from "~/api/credits/credit-service";
 import { stripe } from "~/lib/stripe";
-import { createClient } from "~/lib/supabase/server";
+import { createServiceClient } from "~/lib/supabase/server";
 
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -110,6 +110,7 @@ async function processWebhookEvent(event: Stripe.Event) {
       case "invoice.payment_succeeded": {
         // 只在这四个事件中执行周期权益逻辑
         console.log(`[webhook] 处理周期权益事件: ${event.type}`);
+        console.log(`[webhook] 事件对象详情:`, JSON.stringify(event.data.object, null, 2));
         const result = await handleSubscriptionChange(event);
         console.log(`[webhook] 订阅事件处理完成:`, result);
         return result;
@@ -119,7 +120,12 @@ async function processWebhookEvent(event: Stripe.Event) {
         console.log(`[webhook] 处理订阅删除事件: ${event.type}`);
         const subscriptionFromWebhook = event.data.object as Stripe.Subscription;
         const customerId = subscriptionFromWebhook.customer as string;
-        const supabase = await createClient();
+        console.log(`[webhook] 删除事件详情:`, {
+          subscriptionId: subscriptionFromWebhook.id,
+          customerId,
+          status: subscriptionFromWebhook.status
+        });
+        const supabase = createServiceClient();
         const customer = await stripe.customers.retrieve(customerId);
         if (customer.deleted) {
           console.warn(`[webhook] [handleSubscriptionChange] 客户 ${customerId} 已被删除，忽略.`);
@@ -130,6 +136,7 @@ async function processWebhookEvent(event: Stripe.Event) {
           console.warn(`[webhook] [handleSubscriptionChange] 无法从 customer.metadata 找到 userId，无法同步订阅状态: ${subscriptionFromWebhook.id}`);
           return;
         }
+        console.log(`[webhook] 找到用户ID: ${userId}，准备同步订阅状态`);
         // 只同步 user_profiles 状态
         await syncSubscriptionAndAddCredits(subscriptionFromWebhook, userId, event.type);
         console.log(`[webhook] [handleSubscriptionChange] 已同步订阅状态: ${subscriptionFromWebhook.status}`);
@@ -268,7 +275,7 @@ async function handlePaymentIntentSucceeded(event: Stripe.Event) {
  * 使用 RPC 函数处理支付
  */
 async function processPaymentWithRPC(paymentIntentId: string, rechargeId: string) {
-  const supabase = await createClient();
+  const supabase = createServiceClient();
   
   console.log(`[webhook] 调用 RPC 函数处理支付: ${rechargeId}, ${paymentIntentId}`);
   
@@ -300,7 +307,7 @@ async function handleCreditRechargeWithBackup(
   userId: string, 
   credits: string
 ) {
-  const supabase = await createClient();
+  const supabase = createServiceClient();
   const creditsAmount = parseInt(credits || '0');
   
   console.log(`[webhook] 使用备用方法处理积分充值: userId=${userId}, credits=${creditsAmount}`);
@@ -335,7 +342,7 @@ async function handleCreditRechargeWithBackup(
  */
 async function recordFailedPayment(paymentIntentId: string, rechargeId: string, error: any) {
   try {
-    const supabase = await createClient();
+    const supabase = createServiceClient();
     
     await supabase
       .from('webhook_failures')
@@ -357,7 +364,7 @@ async function recordFailedPayment(paymentIntentId: string, rechargeId: string, 
  */
 async function logWebhookError(eventId: string, error: any) {
   try {
-    const supabase = await createClient();
+    const supabase = createServiceClient();
     
     await supabase
       .from('webhook_errors')
@@ -380,15 +387,32 @@ async function handleSubscriptionChange(event: Stripe.Event) {
   const customerId = subscriptionFromWebhook.customer as string;
 
   console.log(`[webhook] [handleSubscriptionChange] 开始处理订阅状态变更: ${event.type}, 订阅ID: ${subscriptionFromWebhook.id}`);
+  console.log(`[webhook] [handleSubscriptionChange] 订阅详情:`, {
+    subscriptionId: subscriptionFromWebhook.id,
+    customerId,
+    status: subscriptionFromWebhook.status,
+    hasItems: !!subscriptionFromWebhook.items,
+    itemsCount: subscriptionFromWebhook.items?.data?.length || 0
+  });
 
   try {
-    const supabase = await createClient();
+    const supabase = createServiceClient();
+    console.log(`[webhook] [handleSubscriptionChange] 准备获取 Stripe 客户信息: ${customerId}`);
     const customer = await stripe.customers.retrieve(customerId);
+    console.log(`[webhook] [handleSubscriptionChange] 获取到客户信息:`, {
+      customerId: customer.id,
+      deleted: customer.deleted,
+      hasMetadata: 'metadata' in customer && !!(customer as any).metadata,
+      metadata: 'metadata' in customer ? (customer as any).metadata : undefined
+    });
+    
     if (customer.deleted) {
       console.warn(`[webhook] [handleSubscriptionChange] 客户 ${customerId} 已被删除，忽略.`);
       return;
     }
-    const userId = customer.metadata.userId;
+    
+    const userId = 'metadata' in customer ? (customer as any).metadata?.userId : undefined;
+    console.log(`[webhook] [handleSubscriptionChange] 提取用户ID: ${userId}`);
 
     if (!userId) {
       console.warn(`[webhook] [handleSubscriptionChange] 无法从 customer.metadata 找到 userId，无法同步订阅状态: ${subscriptionFromWebhook.id}`);
@@ -397,6 +421,7 @@ async function handleSubscriptionChange(event: Stripe.Event) {
     
     // 此函数现在只负责同步订阅状态（如 active, canceled），不再发放积分
     // 积分发放由 payment_intent.succeeded 事件处理
+    console.log(`[webhook] [handleSubscriptionChange] 准备调用 syncSubscriptionAndAddCredits`);
     await syncSubscriptionAndAddCredits(subscriptionFromWebhook, userId, event.type);
 
     console.log(`[webhook] [handleSubscriptionChange] 已同步订阅状态: ${subscriptionFromWebhook.status}`);
@@ -411,129 +436,119 @@ async function handleSubscriptionChange(event: Stripe.Event) {
  * 新的核心函数：同步订阅所有相关数据并根据情况发放积分
  */
 async function syncSubscriptionAndAddCredits(subscription: Stripe.Subscription, userId: string, eventType: string) {
-  const supabase = await createClient();
+  // 详细的环境变量和连接检查
+  console.log('[sync] ===== syncSubscriptionAndAddCredits 开始 =====');
+  console.log('[sync] 环境变量检查:', {
+    hasSupabaseUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+    hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+    eventType,
+    subscriptionId: subscription.id,
+    userId,
+    subscriptionStatus: subscription.status
+  });
 
-  console.log(`[sync] 开始处理订阅同步，事件类型：${eventType}，订阅状态：${subscription.status}`);
+  const supabase = createServiceClient();
+  console.log('[sync] Supabase 客户端已创建');
 
-  // 修复时间戳处理 - 使用正确的字段名和健壮的检查
+  // 新增：先将该用户其它 active 订阅全部置为 cancelled（除当前 subscription_id）
+  if (subscription.status === 'active') {
+    console.log('[sync] 开始清理用户其他 active 订阅...');
+    const { data: cancelResult, error: cancelError } = await supabase
+      .from('subscription_credits')
+      .update({
+        status: 'cancelled',
+      })
+      .eq('user_id', userId)
+      .eq('status', 'active')
+      .neq('subscription_id', subscription.id);
+      
+    if (cancelError) {
+      console.error('[sync] 清理其他订阅失败:', cancelError);
+    } else {
+      console.log('[sync] 成功清理其他订阅:', cancelResult);
+    }
+  }
+
+  // 日志等保留
   const created = subscription.created;
   const period_start = (subscription as any).current_period_start;
   const period_end = (subscription as any).current_period_end;
+  const items = subscription.items && Array.isArray(subscription.items.data) ? subscription.items.data : [];
+  const priceAmount = items[0]?.price?.unit_amount;
+  const creditsToAdd = priceAmount === 1690 ? 120 : priceAmount === 11880 ? 1800 : 120;
+  const startDate = period_start ? new Date(period_start * 1000).toISOString() : null;
+  const endDate = period_end ? new Date(period_end * 1000).toISOString() : null;
 
-  console.log(`[sync] 时间戳信息:`, {
-    created: created ? new Date(created * 1000).toISOString() : 'missing',
-    period_start: period_start ? new Date(period_start * 1000).toISOString() : 'missing',
-    period_end: period_end ? new Date(period_end * 1000).toISOString() : 'missing',
-    cancel_at_period_end: subscription.cancel_at_period_end,
-    status: subscription.status,
-    subscriptionId: subscription.id
+  console.log('[sync] 订阅数据解析:', {
+    created,
+    period_start,
+    period_end,
+    priceAmount,
+    creditsToAdd,
+    startDate,
+    endDate,
+    itemsCount: items.length
   });
 
-  const hasValidTimestamps = created && period_start && period_end;
-
-  // 1. 优先更新 user_profiles 表 - 无论时间戳是否存在都要更新
-  console.log(`[sync] 开始同步 user_profiles 表, status: ${subscription.status}`);
-  try {
-    const { error: profileError } = await supabase
-      .from("user_profiles")
-      .update({ 
-        subscription_status: subscription.status, 
-        updated_at: new Date().toISOString() 
-      })
-      .eq("id", userId);
-
-    if (profileError) {
-      console.error(`[sync] 同步 user_profiles 表失败:`, profileError);
-      // 非致命错误，继续处理其他操作
-    } else {
-      console.log(`[sync] 同步 user_profiles 表成功, 状态: ${subscription.status}`);
-    }
-  } catch (error) {
-    console.error(`[sync] user_profiles 表更新异常:`, error);
-  }
-
-  // 2. 同步 stripe_subscription 表（仅在有有效时间戳时）
-  if (hasValidTimestamps) {
-    console.log(`[sync] 开始同步 stripe_subscription 表 for sub: ${subscription.id}`);
-    
-    try {
       const subscriptionData = {
         user_id: userId,
-        customer_id: subscription.customer as string,
         subscription_id: subscription.id,
         status: subscription.status,
-        current_period_start: new Date(period_start * 1000).toISOString(),
-        current_period_end: new Date(period_end * 1000).toISOString(),
-        price_id: subscription.items.data[0]?.price.id,
-        product_id: subscription.items.data[0]?.price.product as string,
-        metadata: {
-          cancel_at_period_end: subscription.cancel_at_period_end,
-          cancel_at: subscription.cancel_at ? new Date(subscription.cancel_at * 1000).toISOString() : null,
-          canceled_at: subscription.canceled_at ? new Date(subscription.canceled_at * 1000).toISOString() : null,
-          trial_start: subscription.trial_start ? new Date(subscription.trial_start * 1000).toISOString() : null,
-          trial_end: subscription.trial_end ? new Date(subscription.trial_end * 1000).toISOString() : null,
-        },
-        created_at: new Date(created * 1000).toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error: syncError } = await supabase.from('stripe_subscription').upsert(
-        subscriptionData,
-        { onConflict: 'subscription_id' }
-      );
-
-      if (syncError) {
-        console.error(`[sync] 同步 stripe_subscription 表失败:`, syncError);
-        // 非致命错误，继续处理积分
-      } else {
-        console.log(`[sync] 同步 stripe_subscription 表成功`);
-      }
-    } catch (error) {
-      console.error(`[sync] stripe_subscription 表同步异常:`, error);
-    }
-  } else {
-    console.warn(`[sync] 时间戳不完整，跳过 stripe_subscription 表同步但继续处理积分`, {
-      subscriptionId: subscription.id,
-      hasCreated: !!created,
-      hasPeriodStart: !!period_start,
-      hasPeriodEnd: !!period_end
-    });
-
-    // 即使没有完整时间戳，也尝试基础记录同步
-    try {
-      const basicSubscriptionData = {
-        user_id: userId,
-        customer_id: subscription.customer as string,
-        subscription_id: subscription.id,
-        status: subscription.status,
-        price_id: subscription.items.data[0]?.price.id,
-        product_id: subscription.items.data[0]?.price.product as string,
-        metadata: {
-          cancel_at_period_end: subscription.cancel_at_period_end,
-          missing_timestamps: true,
-          event_type: eventType
-        },
+    total_credits: creditsToAdd,
+    remaining_credits: creditsToAdd, // 可根据实际消费逻辑调整
+    start_date: startDate,
+    end_date: endDate,
+    current_period_start: startDate,
+    current_period_end: endDate,
+    product_id: items[0]?.price?.product,
+    price_id: items[0]?.price?.id,
+    stripe_customer_id: subscription.customer as string,
+    stripe_status: subscription.status,
         created_at: created ? new Date(created * 1000).toISOString() : new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
 
-      const { error: basicSyncError } = await supabase.from('stripe_subscription').upsert(
-        basicSubscriptionData,
-        { onConflict: 'subscription_id' }
-      );
+  console.log('[sync] 准备写入的数据:', JSON.stringify(subscriptionData, null, 2));
+  console.log('[sync] 开始执行 upsert 操作...');
 
-      if (basicSyncError) {
-        console.error(`[sync] 基础订阅数据同步失败:`, basicSyncError);
-      } else {
-        console.log(`[sync] 基础订阅数据同步成功（无时间戳）`);
-      }
-    } catch (error) {
-      console.error(`[sync] 基础订阅数据同步异常:`, error);
+  const { error } = await supabase.from('subscription_credits').upsert(
+    {
+      user_id: subscriptionData.user_id,
+      subscription_id: subscriptionData.subscription_id,
+      credits: subscriptionData.total_credits,
+      remaining_credits: subscriptionData.remaining_credits,
+      start_date: subscriptionData.start_date || new Date().toISOString(),
+      end_date: subscriptionData.end_date || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      status: subscriptionData.status,
+    },
+    { onConflict: 'subscription_id' }
+  );
+  if (error) {
+    console.error('[webhook] 写入 subscription_credits 失败:', error, subscriptionData);
+    console.error('[sync] 错误详情:', {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint
+    });
+  } else {
+    console.log('[sync] ✅ 数据写入成功!');
+    
+    // 验证写入结果
+    const { data: verifyData, error: verifyError } = await supabase
+      .from('subscription_status_monitor')
+      .select('*')
+      .eq('subscription_id', subscription.id)
+      .limit(1);
+      
+    if (verifyError) {
+      console.error('[sync] 验证写入结果失败:', verifyError);
+    } else {
+      console.log('[sync] 验证写入结果:', verifyData);
     }
   }
-
-  // 3. 处理订阅状态变更和积分管理（无论时间戳是否存在）
-  await handleSubscriptionStatusChange(subscription, userId, eventType, hasValidTimestamps);
+  
+  console.log('[sync] ===== syncSubscriptionAndAddCredits 结束 =====');
 }
 
 /**
@@ -622,11 +637,11 @@ async function handleInactiveSubscription(
 ) {
   console.log(`[inactive] 处理非活跃订阅: ${subscription.id}, 状态: ${subscription.status}`);
 
-  const supabase = await createClient();
+  const supabase = createServiceClient();
 
   // 将相关的订阅积分标记为过期或取消
   const { error: expireError } = await supabase
-    .from('subscription_credits')
+    .from('subscription_status_monitor')
     .update({
       status: subscription.status === 'canceled' ? 'cancelled' : 'expired',
       updated_at: new Date().toISOString()
@@ -640,11 +655,15 @@ async function handleInactiveSubscription(
     console.log(`[inactive] 已将订阅积分标记为 ${subscription.status === 'canceled' ? 'cancelled' : 'expired'}`);
   }
 
-  // 重新计算用户积分余额
-  try {
-    await recalculateUserBalance(userId);
-  } catch (recalcError) {
-    console.error(`[inactive] 重新计算用户余额失败:`, recalcError);
+  // 调用数据库函数重新计算用户积分余额
+  const { error: recalcError } = await supabase.rpc('recalculate_user_balance', {
+    p_user_id: userId,
+  });
+
+  if (recalcError) {
+    console.error(`[inactive] 调用 recalculate_user_balance RPC 失败:`, recalcError);
+  } else {
+    console.log(`[inactive] 成功触发用户 ${userId} 的余额重新计算。`);
   }
 }
 
@@ -652,7 +671,7 @@ async function handleInactiveSubscription(
  * 更新或创建订阅积分记录
  */
 async function updateSubscriptionCredits(subscription: Stripe.Subscription, userId: string) {
-  const supabase = await createClient();
+  const supabase = createServiceClient();
   console.log("[credits] 收到订阅对象:", JSON.stringify(subscription, null, 2));
 
   // 安全获取 items.data
@@ -669,7 +688,7 @@ async function updateSubscriptionCredits(subscription: Stripe.Subscription, user
 
   // 检查是否已存在该订阅期间的积分记录
   const { data: existingCredits } = await supabase
-    .from('subscription_credits')
+    .from('subscription_status_monitor')
     .select('*')
     .eq('subscription_id', subscription.id)
     .eq('start_date', startDate)
@@ -696,8 +715,8 @@ async function updateSubscriptionCredits(subscription: Stripe.Subscription, user
     subscription_id: subscription.id,
     credits: creditsToAdd,
     remaining_credits: creditsToAdd,
-    start_date: startDate,
-    end_date: endDate,
+    start_date: startDate || new Date().toISOString(),
+    end_date: endDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
     status: 'active',
   });
 
@@ -708,40 +727,7 @@ async function updateSubscriptionCredits(subscription: Stripe.Subscription, user
   }
 }
 
-/**
- * 重新计算用户积分余额
- */
-async function recalculateUserBalance(userId: string) {
-  const supabase = await createClient();
-  
-  // 计算所有活跃订阅积分的总和
-  const { data: activeCredits, error: activeError } = await supabase
-    .from('subscription_credits')
-    .select('remaining_credits')
-    .eq('user_id', userId)
-    .eq('status', 'active');
 
-  if (activeError) {
-    throw new Error(`查询活跃积分失败: ${activeError.message}`);
-  }
-
-  const totalActiveCredits = activeCredits?.reduce((sum, credit) => sum + credit.remaining_credits, 0) || 0;
-
-  // 更新用户积分余额
-  const { error: updateError } = await supabase
-    .from('user_credit_balance')
-    .update({
-      balance: totalActiveCredits,
-      updated_at: new Date().toISOString()
-    })
-    .eq('user_id', userId);
-
-  if (updateError) {
-    throw new Error(`更新用户余额失败: ${updateError.message}`);
-  }
-
-  console.log(`[balance] 用户 ${userId} 余额重新计算完成: ${totalActiveCredits} 积分`);
-}
 
 /**
  * 处理订阅积分发放
@@ -795,15 +781,15 @@ async function handleSubscriptionBonusCredits(subscription: Stripe.Subscription,
       transactionId: result.transactionId,
     });
     // 可选：记录订阅积分到 subscription_credits 表
-    const supabase = await createClient();
+    const supabase = createServiceClient();
     const { startDate, endDate } = calculateFixedPeriodDates(subscription);
     const { error: subscriptionCreditsError } = await supabase.from('subscription_credits').insert({
       user_id: userId,
       subscription_id: subscription.id,
       credits: creditsToAdd,
       remaining_credits: creditsToAdd,
-      start_date: startDate,
-      end_date: endDate,
+      start_date: startDate || new Date().toISOString(),
+      end_date: endDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       status: 'active',
     });
     if (subscriptionCreditsError) {

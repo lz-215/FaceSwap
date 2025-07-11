@@ -91,13 +91,21 @@ export async function addBonusCreditsWithTransaction(
 }
 
 /**
- * 查询用户积分余额
+ * 查询用户积分余额（实时计算）
  */
-export async function getUserCreditBalance(userId: string) {
+export async function getUserCreditBalance(userId: string): Promise<number> {
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc('get_or_create_user_credit_balance', { p_user_id: userId });
-  if (error) return null;
-  return data;
+  const { data, error } = await supabase.rpc('get_user_balance_realtime', {
+    p_user_id: userId,
+  });
+
+  if (error) {
+    console.error(`[getUserCreditBalance] 获取用户 ${userId} 实时余额失败:`, error);
+    return 0; // 发生错误时返回0
+  }
+
+  // data 可能为 null，如果用户不存在或没有积分
+  return data ?? 0;
 }
 
 /**

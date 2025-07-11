@@ -15,8 +15,6 @@ export async function GET() {
   const creditBalance = await getUserCreditBalance(user.id);
 
   return NextResponse.json({
-    balance: creditBalance?.balance ?? 0,
-    totalRecharged: creditBalance?.total_recharged ?? 0,
-    totalConsumed: creditBalance?.total_consumed ?? 0,
+    balance: creditBalance ?? 0,
   });
 }

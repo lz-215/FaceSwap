@@ -47,12 +47,6 @@ export default getRequestConfig(async () => {
   // 只有在明确设置了cookie的情况下才使用非默认语言
   const locale = cookieLocale || headerLocale || defaultLocale;
 
-  console.log('i18nServer - Selected locale:', locale, {
-    cookieLocale,
-    headerLocale,
-    defaultLocale
-  });
-
   return {
     locale,
     messages: (await import(`../../messages/${locale}.json`)).default,

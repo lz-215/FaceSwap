@@ -37,13 +37,6 @@ export async function generateMetadata({
   const currentLocale = await getLocale();
   const safeLocale = (currentLocale as "en" | "zh") || "en";
 
-  console.log(
-    "Layout metadata - detected locale:",
-    currentLocale,
-    "safe locale:",
-    safeLocale
-  );
-
   return {
     title: SEO_CONFIG.fullName[safeLocale] || SEO_CONFIG.fullName.en,
     description:
@@ -61,7 +54,6 @@ export default async function LocaleLayout({
 }>) {
   const { locale } = await params;
   const messages = await getMessages();
-  console.log("Loaded messages:", messages);
   return (
     <html lang={locale} suppressHydrationWarning>
       <body

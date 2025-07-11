@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from './use-auth';
+import { getSubscriptionStatus } from './use-subscription-status';
 
 interface SubscriptionInfo {
   id: string;
@@ -43,12 +44,15 @@ export function useSubscription(): UseSubscriptionResult {
       setIsLoading(true);
       setError(null);
 
+      // 统一用 subscription_status_monitor 判断会员状态
+      const { isActive } = await getSubscriptionStatus();
+      setHasActiveSubscription(isActive);
+
+      // 仍然获取订阅列表（如账单页面需要）
       const response = await fetch('/api/payments/subscriptions');
-      
       if (!response.ok) {
         throw new Error('Failed to fetch subscriptions');
       }
-
       const data = await response.json() as { subscriptions: any[] };
       const subs: SubscriptionInfo[] = (data.subscriptions || []).map((sub: any) => ({
         id: sub.id,
@@ -60,7 +64,6 @@ export function useSubscription(): UseSubscriptionResult {
         endDate: sub.endDate,
       }));
       setSubscriptions(subs);
-      setHasActiveSubscription(subs.some(sub => sub.status === 'active'));
     } catch (err) {
       console.error('Failed to fetch subscription status:', err);
       setError(err instanceof Error ? err.message : 'Unknown error');

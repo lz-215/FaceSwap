@@ -37,15 +37,21 @@ export interface UserCreditBalance {
   updated_at: string;
 }
 
-export interface SubscriptionCredits {
-  id: string; // UUID
-  user_id: string; // UUID, references auth.users(id)
+export interface SubscriptionStatusMonitor {
+  id: string;
+  user_id: string;
   subscription_id: string;
-  credits: number;
+  status: string;
+  total_credits: number;
   remaining_credits: number;
   start_date: string;
   end_date: string;
-  status: string;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  product_id?: string;
+  price_id?: string;
+  stripe_customer_id?: string;
+  stripe_status?: string;
   created_at: string;
   updated_at: string;
 }
@@ -73,26 +79,13 @@ export interface FaceSwapHistory {
   project_id?: string;
 }
 
-export interface StripeSubscription {
-  id: string; // UUID
-  user_id: string; // UUID, references auth.users(id)
-  customer_id: string;
-  subscription_id: string;
-  product_id?: string;
-  price_id?: string;
-  status: string;
-  current_period_start?: string;
-  current_period_end?: string;
-  metadata?: Record<string, any>;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface PolarSubscription {
   id: string;
   subscriptionId: string;
   productId: string;
   status: string;
+  startDate?: string;
+  endDate?: string;
 }
 
 // 数据库表名常量

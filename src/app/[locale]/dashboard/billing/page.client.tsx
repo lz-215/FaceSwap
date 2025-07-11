@@ -129,77 +129,117 @@ export function BillingPageClient({ user }: BillingPageClientProps) {
         </Alert>
       )}
 
-      {/* Subscription Status */}
-      <div className="mb-8 grid gap-6">
+      {/* 美化后的交易记录和到期时间展示 */}
+      <div className="mb-8">
         <Card>
           <CardHeader>
-            <CardTitle>Subscription Status</CardTitle>
+            <CardTitle>Subscription Transactions</CardTitle>
             <CardDescription>
-              Your current subscription plan and status
+              All your subscription periods, expiry dates, and credits
             </CardDescription>
           </CardHeader>
           <CardContent>
             {subscriptions.length > 0 ? (
-              <div className="space-y-4">
-                {subscriptions.map((subscription) => (
-                  <div
-                    className="flex flex-col md:flex-row md:items-center md:justify-between rounded-lg border p-4 gap-2"
-                    key={subscription.id}
-                  >
-                    <div>
-                      <h3 className="font-medium">{subscription.productId}</h3>
-                      <p className="text-sm text-muted-foreground">
-                        ID: {subscription.subscriptionId}
-                      </p>
-                      {/*
-                      {subscription.startDate && (
-                        <p className="text-xs text-muted-foreground">
-                          Start: {subscription.startDate}
-                        </p>
-                      )}
-                      {subscription.endDate && (
-                        <p className="text-xs text-muted-foreground">
-                          End: {subscription.endDate}
-                        </p>
-                      )}
-                      {subscription.amount && (
-                        <p className="text-xs text-muted-foreground">
-                          Amount: ${(subscription.amount / 100 || 0).toFixed(2)}
-                        </p>
-                      )}
-                      */}
-                    </div>
-                    <Badge
-                      variant={
-                        subscription.status === "active" ? "default" : "outline"
-                      }
-                    >
-                      {subscription.status}
-                    </Badge>
-                  </div>
-                ))}
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        ID
+                      </th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Expiry
+                      </th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Status
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-100">
+                    {subscriptions.map((subscription) => {
+                      const isExpiringSoon =
+                        subscription.endDate &&
+                        new Date(subscription.endDate).getTime() - Date.now() <
+                          7 * 24 * 60 * 60 * 1000 &&
+                        subscription.status === "active";
+                      let badgeColor = "";
+                      if (subscription.status === "active")
+                        badgeColor = isExpiringSoon
+                          ? "bg-yellow-400 text-yellow-900"
+                          : "bg-green-500 text-white";
+                      else if (subscription.status === "expired")
+                        badgeColor = "bg-gray-400 text-white";
+                      else if (subscription.status === "cancelled")
+                        badgeColor = "bg-red-500 text-white";
+                      else badgeColor = "bg-blue-400 text-white";
+                      return (
+                        <tr
+                          key={subscription.subscriptionId}
+                          className={isExpiringSoon ? "bg-yellow-50" : ""}
+                        >
+                          <td className="px-4 py-2 font-mono text-xs text-gray-700">
+                            {subscription.subscriptionId}
+                          </td>
+                          <td className="px-4 py-2 text-sm">
+                            {subscription.endDate ? (
+                              <span
+                                className={
+                                  isExpiringSoon
+                                    ? "font-bold text-yellow-700"
+                                    : ""
+                                }
+                              >
+                                {new Date(
+                                  subscription.endDate
+                                ).toLocaleString()}
+                                {isExpiringSoon && (
+                                  <span className="ml-2 text-xs bg-yellow-200 px-2 py-0.5 rounded">
+                                    Expiring Soon
+                                  </span>
+                                )}
+                              </span>
+                            ) : (
+                              "-"
+                            )}
+                          </td>
+                          <td className="px-4 py-2">
+                            <span
+                              className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${badgeColor}`}
+                            >
+                              {subscription.status}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             ) : (
-              <p className="text-muted-foreground">
-                You don't have any subscriptions yet.
-              </p>
+              <div className="flex flex-col items-center justify-center py-12">
+                <svg
+                  width="64"
+                  height="64"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  className="mb-4 text-gray-300"
+                >
+                  <path
+                    d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10Zm-2-7h4m-2-6v6"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                <p className="text-muted-foreground text-lg">
+                  No subscription transactions found.
+                </p>
+              </div>
             )}
           </CardContent>
-          <CardFooter>
-            {hasActiveSubscription && (
-              <Button
-                onClick={() => router.push("/auth/customer-portal")}
-                variant="outline"
-              >
-                Manage Subscription
-              </Button>
-            )}
-          </CardFooter>
         </Card>
       </div>
-
-      {/* Payment Plans */}
-      {/* 不再显示套餐卡片 */}
     </div>
   );
 }

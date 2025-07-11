@@ -77,11 +77,12 @@ export default function DashboardPage() {
   const canViewBilling = hasActiveSubscription && totalRecharged > 0;
   const isBillingLoading = subscriptionLoading || creditsLoading;
 
-  // 取最新 active 订阅的到期时间
-  const activeSub = subscriptions.find((sub) => sub.status === "active");
-  const subscriptionEndDate = activeSub?.endDate
-    ? new Date(activeSub.endDate).toLocaleDateString()
-    : null;
+  // 删除 subscriptions 相关逻辑
+  // const activeSub = subscriptions.find((sub) => sub.status === "active");
+  // const subscriptionEndDate = activeSub?.endDate
+  //   ? new Date(activeSub.endDate).toLocaleDateString()
+  //   : null;
+  const subscriptionEndDate = null; // 暂无订阅到期时间，后续如需展示可扩展 getSubscriptionStatus 返回
 
   const copyToClipboard = async () => {
     try {

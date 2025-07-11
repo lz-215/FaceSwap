@@ -94,7 +94,38 @@ export async function POST(request: NextRequest) {
 
     console.log("用户信息获取成功:", { userId: user.id, email: userInfo.email });
 
-    // 6. 处理Stripe客户
+    // 6. 检查用户是否已有有效订阅
+    const { data: activeSubscription, error: subscriptionError } = await supabase
+      .from("subscription_status_monitor")
+      .select("status")
+      .in("status", ["active", "trialing"]) // 'active' 或 'trialing' 都算有效订阅
+      .eq("user_id", user.id)
+      .maybeSingle(); // 使用 maybeSingle，因为没有或只有一条记录
+
+    if (subscriptionError) {
+      console.error("查询有效订阅时出错:", subscriptionError);
+      return NextResponse.json({ error: "服务器内部错误" }, { status: 500 });
+    }
+
+    // 如果已存在有效订阅，则创建客户门户会话
+    if (activeSubscription) {
+      console.log(`用户 ${user.id} 已有有效订阅，将创建客户门户会话。`);
+      try {
+        const portalSession = await stripe.billingPortal.sessions.create({
+          customer: userProfile.customer_id as string,
+          return_url: `${process.env.NEXT_PUBLIC_APP_URL}/settings/billing`, // 管理订阅后返回的页面
+        });
+        return NextResponse.json({ 
+          url: portalSession.url,
+          isSubscribed: true, // 添加一个标志，告诉前端这是管理链接
+        });
+      } catch (portalError) {
+        console.error("创建Stripe客户门户会话失败:", portalError);
+        return NextResponse.json({ error: "无法创建订阅管理会话" }, { status: 500 });
+      }
+    }
+
+    // 7. 处理Stripe客户 (如果用户没有有效订阅)
     let customerId = userInfo.customer_id;
     if (!customerId) {
       console.log("创建新的Stripe客户");
@@ -129,6 +160,12 @@ export async function POST(request: NextRequest) {
     try {
       const checkoutSession = await stripe.checkout.sessions.create({
         customer: customerId,
+        // -- FIX: 移除 customer_update[metadata]，Stripe 不支持 --
+        // customer_update: {
+        //   metadata: {
+        //     userId: user.id,
+        //   },
+        // },
         line_items: [
           {
             price: priceId,
